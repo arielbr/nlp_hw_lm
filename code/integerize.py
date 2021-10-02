@@ -2,7 +2,7 @@
 # CS765 and CS465 at Johns Hopkins University.
 # Module for integerizing Python objects.
 
-# Author: Jason Eisner <jason@cs.jhu.edu>, Spring 2018, Fall 2020
+# Author: Jason Eisner <jason@cs.jhu.edu>, Spring 2018, Fall 2020, Fall 2021
 
 # The Integerizer class makes it easy to map between objects and
 # integers.  The objects are assigned consecutive integers starting at 0.
@@ -29,8 +29,7 @@
 # name, then the feature's weight could be stored at theta[7], where
 # theta is the parameter vector in NumPy.
 
-from typing import (Dict, Generic, Iterable, Iterator, List, Optional, TypeVar,
-                    overload)
+from typing import (Dict, Generic, Iterable, Iterator, List, Optional, TypeVar)
 
 T = TypeVar("T")  # see https://mypy.readthedocs.io/en/stable/generics.html
 
@@ -67,7 +66,7 @@ class Integerizer(Generic[T]):
     # If you are unfamiliar with the special __ method names, check out
     # https://docs.python.org/3/reference/datamodel.html#special-method-names .
 
-    def __init__(self, iterable=[]):
+    def __init__(self, iterable: List[T] = []):
         """
         Initialize the collection to the empty set, or to the set of *unique* objects in its argument
         (in order of first occurrence).
@@ -88,8 +87,11 @@ class Integerizer(Generic[T]):
         # Python's built-in set API doesn't give us access to the
         # integer indices that the set uses internally.
 
-    def __eq__(self, other) -> bool:
-        return self._objects == other._objects
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, Integerizer):
+            return self._objects == other._objects   # type: ignore  # other._objects is List[Unknown] but that is ok since `==` allows any object
+        else:
+            return False
 
     def __len__(self) -> int:
         """
@@ -109,22 +111,14 @@ class Integerizer(Generic[T]):
         """
         return self.index(obj) is not None
 
-    @overload  # To appease the type checker and provide better hints in your editor!
-    def __getitem__(self, index: int) -> T:
-        ...  # We'll get overridden by the implemented version below.
-
-    @overload
     def __getitem__(self, index: slice) -> List[T]:
-        ...  # This is to type-hint the fact that we support slices: my_integerizer[3:5]
-
-    def __getitem__(self, index):
         """
         Return the object with a given index.  
         (Implements subscripting, e.g., `my_integerizer[3]` and `my_integerizer[3:5]`.)
         """
         return self._objects[index]
 
-    def index(self, obj: T, add=False) -> Optional[int]:
+    def index(self, obj: T, add: bool = False) -> Optional[int]:
         """
         The integer associated with a given object, or `None` if the object is not in the collection (OOV).  
         Use `add=True` to add the object if it is not present. 

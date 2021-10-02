@@ -1,67 +1,62 @@
 #!/usr/bin/env python3
 """
-Builds a vocabulary file from a list of training documents. Allows the specification of
-a threshold t such that only words that appear at least t times gets included in
-the vocabulary. A vocabulary file is saved as a text files where each line is a word.
+Builds a vocabulary of all types that appear "often enough" in a training
+corpus.  The vocabulary is saved as a text file where each line is a word.  
+Tokenization is handled by probs.py (currently tokenization at whitespace).
 """
 import argparse
 import sys
-from typing import Iterable
+from typing import Set, Counter
 from collections import Counter
 from pathlib import Path
 
-from Probs import EOS, OOV, Wordtype, get_tokens
+from probs import EOS, OOV, Wordtype, read_tokens
 
 
-VOCAB_THRESHOLD = 3    # minimum number of occurrence for a word to be considered in-vocabulary
-
-def parse_cmdline():
-    parser = argparse.ArgumentParser(__doc__)
+def parse_args():
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "documents",
         nargs="+",
         type=Path,
-        help="a list of text documents from which to extract the vocabulary")
+        help="A list of text documents from which to extract the vocabulary")
     parser.add_argument(
-        "--save_file",
-        default="tmp_vocab.txt",
-        help="a file to save the vocabulary to"
+        "--output",
+        type=Path,
+        default="vocab.txt",
+        help="The file to save the vocabulary to"
     )
     parser.add_argument(
-        "--vocab_threshold",
-        default=VOCAB_THRESHOLD,
+        "--threshold",
+        default=1,
         type=int,
-        help="the minimum number of times a word has to appear for it to be included in the vocabulary")
+        help="The minimum number of times a word has to appear for it to be included in the vocabulary (default 1)")
 
-    args = parser.parse_args()
-    return args
+    return parser.parse_args()
 
-
-def build_vocab(*files: Iterable[Path], vocab_threshold: int = VOCAB_THRESHOLD, progress_freq: int = 5000) -> set:
+def build_vocab(*files: Path, threshold: int) -> Set[str]:
     progress = 0
     word_counts: Counter[Wordtype] = Counter()  # count of each word
     for file in files:
-        for token in get_tokens(file):
+        for token in read_tokens(file):
             word_counts[token] += 1
-            if progress % progress_freq == 1: # print a dot every progress_freq words processed
-                sys.stderr.write(".")
-    sys.stderr.write("\n")  # done printing progress dots "...."
 
-    vocab = set(w for w in word_counts if word_counts[w] >= vocab_threshold)
-    vocab |= {  # Union equals
+    vocab = set(w for w in word_counts if word_counts[w] >= threshold)
+    vocab |= {  # the |= operator modifies vocab by taking its union with this set of size 2
         OOV,
         EOS,
-    }  # We make sure that EOS is in the vocab, even if get_tokens returns it too few times.
-    # But BOS is not in the vocab: it is never a possible outcome, only a context.
+    }  # We make sure that EOS is in the vocab, even if read_tokens returns it too few times.
+       # But BOS is not in the vocab: it is never a possible outcome, only a context.
 
     sys.stderr.write(f"Vocabulary size is {len(vocab)} types including OOV and EOS\n")
     return vocab
 
 
-def save_vocab(vocab, save_file):
-    with open(save_file, "wt") as fout:
+def save_vocab(vocab: Set[str], output: Path):
+    with open(output, "wt") as f:
         for word in vocab:
-            print(word, file=fout)
+            print(word, file=f)
+
 
 def main():
     """
@@ -74,15 +69,15 @@ def main():
 
         Build a vocab file out of the union of words in spam and gen
 
-        ./build_vocab.py ../data/gen_spam/train/gen ../data/gen_spam/train/spam --save_file vocab-genspam.txt --vocab_thresold 3
+        ./build_vocab.py ../data/gen_spam/train/gen ../data/gen_spam/train/spam --threshold 3 --output vocab-genspam.txt 
 
         After which you should see the following saved vocab file:
 
         vocab-genspam.txt
     """
-    args = parse_cmdline()
-    vocab = build_vocab(*args.documents, vocab_threshold=args.vocab_threshold)
-    save_vocab(vocab, args.save_file)
+    args = parse_args()
+    vocab = build_vocab(*args.documents, threshold=args.threshold)
+    save_vocab(vocab, args.output)
 
 if __name__ == '__main__':
     main()

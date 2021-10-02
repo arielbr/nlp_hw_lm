@@ -20,18 +20,14 @@ from torch.optim.optimizer import Optimizer  # type: ignore[import]
 class ConvergentSGD(Optimizer):
     """Minimize a function by stepping down the gradient """
 
-    def __init__(
-        self, params: Iterable[th.Tensor], gamma0: float, lambda_,
-    ):
+    def __init__(self, params: Iterable[th.Tensor], gamma0: float, lambda_: float):
         # Validate inputs.
         if gamma0 < 0.0:
             raise ValueError(f"Invalid initial learning rate: {gamma0}")
         if lambda_ < 0.0:
             raise ValueError(f"Invalid learning rate shrinkage constant: {lambda_}")
 
-        super().__init__(
-            params, defaults={}
-        )  # `defaults` is required, but we don't use it.
+        super().__init__(params)
         self.gamma0: Final[float] = gamma0  # Initial learning rate (from Algorithm 1)
         self.lambda_: Final[
             float
@@ -45,7 +41,7 @@ class ConvergentSGD(Optimizer):
         return gamma
 
     @th.no_grad()  # Don't bother with gradient bookkeeping here.
-    def step(self) -> None:
+    def step(self, closure=None) -> None:
         """Perform a single optimization step, then update t."""
         # Loop over the parameters and update them (line 7 of Algorithm 1)
         gamma = self.gamma  # Cache this current value.

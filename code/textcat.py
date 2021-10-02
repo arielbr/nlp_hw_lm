@@ -35,6 +35,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         nargs="*"
     )
+    parser.add_argument(
+        "--ln_prior",
+        type=bool,
+        default=False,
+        help="Set to True to interpret `prior_1` as the natural logarithm of the prior probability",
+    )
 
     verbosity = parser.add_mutually_exclusive_group()
     verbosity.add_argument(
@@ -68,9 +74,14 @@ def main():
     logging.basicConfig(level=args.verbose)
 
     # Test if the prior probability is invalid
-    if (args.prior_1 <= 0.0 or args.prior_1 >= 1.0):
-        log.error(f"Invalid prior probability {args.prior_1:g} (must be strictly between 0 and 1)")
-        sys.exit(1)
+    if (args.ln_prior):
+        if (args.prior_1 > 0.0):
+            log.error(f"Invalid natural log of prior probability (must be nonpositive)")
+            sys.exit(1)
+    else:
+        if (args.prior_1 <= 0.0 or args.prior_1 >= 1.0):
+            log.error(f"Invalid prior probability {args.prior_1:g} (must be strictly between 0 and 1)")
+            sys.exit(1)
 
     log.info("Testing...")
     lm_1 = LanguageModel.load(args.model_1)
@@ -85,16 +96,24 @@ def main():
     if (lm_1.vocab != lm_2.vocab):
         log.error("Language models do not have the same vocabulary")
         sys.exit(1)
-    
+
     # We use natural log for our internal computations and that's
     # the kind of log-probability that file_log_prob returns.
     # But we'd like to print a value in bits: so we convert
     # log base e to log base 2 at print time, by dividing by log(2).
 
     lm_1_count = 0
+    log_prior_1 = 0
+    log_prior_2 = 0
+    if args.ln_prior:
+        log_prior_1 = args.prior_1
+        log_prior_2 = math.log(1 - math.exp(args.prior_1))
+    else:
+        log_prior_1 = math.log(args.prior_1)
+        log_prior_2 = math.log(1 - args.prior_1)
     for file in args.test_files:
-        log_prob_1: float = file_log_prob(file, lm_1) + math.log(args.prior_1)
-        log_prob_2: float = file_log_prob(file, lm_2) + math.log(1 - args.prior_1)
+        log_prob_1: float = file_log_prob(file, lm_1) + log_prior_1
+        log_prob_2: float = file_log_prob(file, lm_2) + log_prior_2
         better_lm = (corpus_name_1 if (log_prob_1 >= log_prob_2) else corpus_name_2)
         print(f"{better_lm}\t{file}")
         if (log_prob_1 >= log_prob_2):

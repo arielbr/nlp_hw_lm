@@ -289,10 +289,14 @@ class BackoffAddLambdaLanguageModel(AddLambdaLanguageModel):
 
     def prob(self, x: Wordtype, y: Wordtype, z: Wordtype) -> float:
         # TODO: Reimplement me so that I do backoff
-        return super().prob(x, y, z)
+        #return super().prob(x, y, z)
         # Don't forget the difference between the Wordtype z and the
         # 1-element tuple (z,). If you're looking up counts,
         # these will have very different counts!
+        # Kyle: This is my first guess at the backoff formula. High chance this needs to be fixed.
+        p_z = (self.event_count[(z,)] + self.lambda_)/(self.context_count[()] + self.lambda_*self.vocab_size)
+        p_zy = (self.event_count[(y, z)] + self.lambda_*self.vocab_size*p_z)/(self.context_count[(y,)] + self.lambda_*self.vocab_size)
+        return (self.event_count[(x, y, z)] + self.lambda_*self.vocab_size*p_zy)/(self.context_count[(x, y)] + self.lambda_*self.vocab_size)
 
 
 class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):

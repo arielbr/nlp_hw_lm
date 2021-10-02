@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>public/hw-lm/code/INSTRUCTIONS</title>
+  <style>
+    html {
+      line-height: 1.5;
+      font-family: Georgia, serif;
+      font-size: 20px;
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      word-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 1em;
+      }
+    }
+    @media print {
+      body {
+        background-color: transparent;
+        color: black;
+        font-size: 12pt;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      font-family: Menlo, Monaco, 'Lucida Console', Consolas, monospace;
+      font-size: 85%;
+      margin: 0;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      background-color: #1a1a1a;
+      border: none;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <!--[if lt IE 9]>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv-printshiv.min.js"></script>
+  <![endif]-->
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">public/hw-lm/code/INSTRUCTIONS</h1>
+</header>
+<p>A version of this Python port for an earlier version of this assignment was kindly provided by Eric Perlman, a previous student in the NLP class. Thanks to Prof. Jason Baldridge at U. of Texas for updating the code and these instructions when he borrowed the assignment. They were subsequently modified by Xuchen Yao, Mozhi Zhang and Chu-Cheng Lin for more recent versions of the assignment. The current form was prepared by Arya McCarthy and Jason Eisner.</p>
+<hr />
+<p>Hooray, let’s kick it with some smoothed language models.</p>
+<h2 id="downloading-the-assignment-materials">Downloading the Assignment Materials</h2>
+<p>We assume that you’ve made a local copy of <a href="http://www.cs.jhu.edu/~jason/465/hw-lm/" class="uri">http://www.cs.jhu.edu/~jason/465/hw-lm/</a> (for example, by downloading and unpacking the zipfile there) and that you’re currently in the <code>code/</code> subdirectory.</p>
+<h2 id="environments-and-miniconda">Environments and Miniconda</h2>
+<p>You probably also want to install Miniconda, a minimal tool for managing and reproducing environments. It does the hard work of installing packages like NumPy that use faster, vectorized math compared to the standard Python int and float data types.</p>
+<p>Miniconda (and its big sibling Anaconda) are all the rage in NLP and deep learning. Install it following your platform- specific instructions from here:</p>
+<p><a href="https://conda.io/projects/conda/en/latest/user-guide/install/index.html" class="uri">https://conda.io/projects/conda/en/latest/user-guide/install/index.html</a></p>
+<p>One you’ve installed it, you can create an “environment” that matches the one on the autograder, so you instantly know whether your code will work there or not.</p>
+<pre><code>conda env create -f environment.yml</code></pre>
+<p>Now that you’ve cloned our environment (made it available for your use) from the .yml specification file, you can “activate” it.</p>
+<pre><code>conda activate hw-lm</code></pre>
+<p>If this worked, then your prompt should be prefixed by the environment name, like this:</p>
+<pre><code>(hw-lm) arya@ugradx:~/hw-lm/code$</code></pre>
+<p>This means that third-party packages like PyTorch are now available for you to “import” in your Python scripts. You are also, for sure, using the same Python version as we are.</p>
+<hr />
+<h2 id="question-1.">QUESTION 1.</h2>
+<p>Type <code>./build_vocab.py --help</code> to see documentation.</p>
+<p>Once you’ve familiarized yourself with the arguments, try to run the script like this:</p>
+<pre><code>Usage:   ./build_vocab.py corpus1 corpus2 ... corpusN --save_path vocabfilename --vocab_thresold number
+Example: ./build_vocab.py ../data/gen_spam/train/gen ../data/gen_spam/train/spam --save_file vocab-genspam.txt --vocab_thresold 3</code></pre>
+<p>A vocab file is just a text file with a list of words in it. Once you’ve built a vocab file, you can use it as an input to <code>./fileprob.py</code>.</p>
+<p>You will need to build a new vocabulary file every time you train on a new corpus, but once built, you can keep reusing the same vocab file for training different models on the same corpus.</p>
+<p>Type <code>./fileprob.py --help</code> to see documentation.</p>
+<p>Once you’ve familiarized yourself with the arguments, try to run the script like this:</p>
+<pre><code>Usage:   ./fileprob.py TRAIN vocab smoother lexicon trainpath
+         ./fileprob.py TEST vocab smoother lexicon trainpath files...
+Example: ./fileprob.py TRAIN vocab-genspam.txt add0.01 ../lexicons/words-10.txt ../data/speech/train/switchboard-small
+         ./fileprob.py TEST  vocab-genspam.txt add0.01 ../lexicons/words-10.txt ../data/speech/train/switchboard-small ../data/speech/sample*</code></pre>
+<p>Note: It may be convenient to use symbolic links (shortcuts) to avoid typing long filenames. For example,</p>
+<pre><code>ln -sr ../data/speech/train sptrain </code></pre>
+<p>will create a subdirectory <code>sptrain</code> in the current directory, which is really a shortcut to <code>../data/speech/train</code>.</p>
+<p><code>fileprob.py</code> automatically computes the model name from the vocab, smoother, lexicon, and training corpus that was used to train the model. While some smoothers (including add-lambda and uniform) ignores the lexicon, some won’t (all the log-linear models will make use of them). For consistency of naming, lexicon is always required.</p>
+<hr />
+<h2 id="question-2.">QUESTION 2.</h2>
+<p>Copy <code>fileprob.py</code> to <code>textcat.py</code>.</p>
+<p>Modify <code>textcat.py</code> so that it does text categorization.</p>
+<p>For each training corpus, you should create a new language model. You will first need to call <code>set_vocab()</code> on the pair of corpora, so that both models use the same vocabulary (derived from the union of the two corpora). Note that <code>set_vocab</code> can take multiple files as arguments. You can re-use the current LanguageModel object by using the following strategy.</p>
+<pre><code>  (In TRAIN mode)
+  call lm.set_vocab_size() on the pair of training corpora
+
+  train model 1 from corpus 1
+  train model 2 from corpus 2
+  store the model parameters
+  terminate program
+
+  ===
+
+  (In TEST mode)
+  restore model 1 and model 2 the previously saved parameters
+  for each file,
+    compute its probability under model 1: save this in an array
+
+  for each file,
+    compute its probability under model 2: save this in an array
+  loop over the arrays and print the results</code></pre>
+<p>There are other ways to solve this problem, if you prefer. However, we require your <code>textcat.py</code> to have two modes, <code>TRAIN</code> and <code>TEST</code>. The <code>TRAIN</code> mode should train the models and save the parameters. The <code>TEST</code> mode should load the previously saved parameters and compute/print the results without looking at corpus 1 and 2.</p>
+<hr />
+<h2 id="question-5.">QUESTION 5.</h2>
+<p>Open <code>Probs.py</code>. Implement the <code>prob()</code> function for the model BACKOFF_ADDL.</p>
+<p>Remember you need to handle OOV words, and make sure the probabilities of all possible words after a given context sums up to one.</p>
+<p>As you are only adding a new model, the behavior of your old models such as ADDL should not change.</p>
+<hr />
+<h2 id="question-6.">QUESTION 6.</h2>
+<p>Now add the <code>sample()</code> method. Did your good OOP principles suggest the best place to do this?</p>
+<p>Be sure to include a maximum length limit. Otherwise your program may try to generate very long sequences.</p>
+<hr />
+<h2 id="question-7.">QUESTION 7.</h2>
+<ol type="a">
+<li><p>Now complete the LOGLIN model in <code>EmbeddingLogLinearLanguageModel</code>.</p>
+<p>Remember that you need to look up an embedding for each word, falling back to the OOL embedding if that word is not in the lexicon (including OOV).</p></li>
+<li><p>Use stochastic gradient descent (ascent) and back-propagation in the <code>train()</code> function in <code>Probs.py</code>.</p></li>
+<li><p>Complete the IMPROVED model as <code>ImprovedLogLinearLanguageModel</code>. This is a subclass of the LOGLIN model, so you can inherit or override methods as you like.</p></li>
+</ol>
+<p>As you are only adding new models, the behavior of your old models should not change.</p>
+<h3 id="using-vectormatrix-operations-crucial-for-speed">Using vector/matrix operations (crucial for speed!):</h3>
+<p>Training the log-linear model on <code>en.1K</code> can be done with simple “for” loops and 2D array representation of matrices. However, you’re encouraged to use PyTorch’s matrix/vector operations, which will reduce training time and might simplify your code.</p>
+<p>TA’s note: my original implementation took 22 hours per epoch. Careful vectorization of certain operations, leveraging PyTorch, brought that runtime down to 13 minutes per epoch.</p>
+<p>Make sure to use the torch.logsumexp method for computing the log-denominator in the log-probability.</p>
+<hr />
+<h2 id="question-9-extra-credit">QUESTION 9 (EXTRA CREDIT)</h2>
+<p>In this question, you’re back to having only one language model as in <code>fileprob</code> (not two as in <code>textcat</code>). So, initialize <code>speechrec.py</code> to a copy of <code>fileprob.py</code>, and then edit it.</p>
+<p>You shouldn’t have to change the <code>TRAIN</code> mode.</p>
+<p>But modify speechrec.py so that in <code>TEST</code> mode, instead of evaluating the prior probability of the entire test file, it separately evaluates the prior probability of each candidate transcription in the file. It can then select the transcription with the highest <em>posterior</em> probability and report its error rate, as required.</p>
+<p>The <code>get_trigrams</code> function in <code>Probs.py</code> is no longer useful at <code>TEST</code> time, since a speech dev or test file has a special format. You don’t want to iterate over all the trigrams in such a file. You may want to make an “outer loop” utility function that iterates over the candidate transcriptions in a given speech dev or test file, along with an “inner loop” utility function that iterates over the trigrams in a given candidate transcription.</p>
+<p>(The outer loop is specialized to the speechrec format, so it probably belongs in <code>speechrec.py</code>. The inner loop is similar to <code>get_trigrams</code> and might be more generally useful, so it probably belongs in <code>Probs.py</code>.)</p>
+</body>
+</html>

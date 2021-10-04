@@ -27,7 +27,7 @@ class ConvergentSGD(Optimizer):
         if lambda_ < 0.0:
             raise ValueError(f"Invalid learning rate shrinkage constant: {lambda_}")
 
-        super().__init__(params)
+        super().__init__(params, {}) # line changed from super().__init__(params)
         self.gamma0: Final[float] = gamma0  # Initial learning rate (from Algorithm 1)
         self.lambda_: Final[
             float

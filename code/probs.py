@@ -27,6 +27,8 @@ from pathlib import Path
 import torch
 from torch import nn
 from torch import optim
+from torch.utils.data import Dataset, DataLoader, SubsetRandomSampler
+from itertools import chain
 from typing import Counter
 from collections import Counter
 
@@ -90,6 +92,15 @@ def num_tokens(file: Path) -> int:
     """Give the number of tokens in file, including EOS."""
     return sum(1 for _ in read_tokens(file))
 
+def num_tokens_general(file: Path) -> int:
+    """Give the number of tokens in file, including EOS. If `file` does not specify
+    a directory, then this function behaves identically to `num_tokens`. If `file`
+    specifies a directory, then this function returns the total number of tokens in
+    all non-directory files in this directory (no subdirectory recursion)."""
+    if not(file.is_dir()):
+        return num_tokens(file)
+    return sum([num_tokens(stuff) for stuff in file.iterdir() if not(stuff.is_dir())])
+
 
 def read_trigrams(file: Path, vocab: Vocab) -> Iterable[Trigram]:
     """Iterator over the trigrams in file.  Each triple (x,y,z) is a token z
@@ -124,6 +135,16 @@ def draw_trigrams_forever(file: Path,
         while True:
             for trigram in random.sample(pool, len(pool)):
                 yield trigram
+
+def read_trigrams_general(file: Path, vocab: Vocab) -> Iterable[Trigram]:
+    """Iterator over the trigrams in file. If `file` does not specify a directory,
+    then this function behaves identically to `read_trigrams`. If `file` specifies
+    a directory, then this function returns an iterator over all trigrams that occur
+    in any non-directory file in this directory (no subdirectory recursion)."""
+    if not(file.is_dir()):
+        return read_trigrams(file, vocab)
+    return chain(*[read_trigrams(stuff, vocab) for stuff in file.iterdir() if not(stuff.is_dir())])
+
 
 ##### READ IN A VOCABULARY (e.g., from a file created by build_vocab.py)
 
@@ -298,6 +319,7 @@ class BackoffAddLambdaLanguageModel(AddLambdaLanguageModel):
         p_zy = (self.event_count[(y, z)] + self.lambda_*self.vocab_size*p_z)/(self.context_count[(y,)] + self.lambda_*self.vocab_size)
         return (self.event_count[(x, y, z)] + self.lambda_*self.vocab_size*p_zy)/(self.context_count[(x, y)] + self.lambda_*self.vocab_size)
 
+import tqdm
 
 class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
     # Note the use of multiple inheritance: we are both a LanguageModel and a torch.nn.Module.
@@ -310,7 +332,22 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         self.l2: float = l2
 
         # TODO: READ THE LEXICON OF WORD VECTORS AND STORE IT IN A USEFUL FORMAT.
+        # Kyle: I am currently assuming that the lexicon file is formatted the same way it was in Homework 2.
+        # TODO: We should check the lexicon file format for this homework assignment.
         self.dim = 99999999999  # TODO: SET THIS TO THE DIMENSIONALITY OF THE VECTORS
+        with open(lexicon_file) as f:
+            first_line = next(f).replace("\n", "")  # Peel off the special first line.
+            [num_words, self.dim] = [int(s) for s in first_line.split(" ")]
+            self.embeddings = torch.zeros([num_words, self.dim], dtype=torch.float)
+            self.word_indices = {}
+            i = 0
+            for line in f:  # All of the other lines are regular.
+                tokens = line.split("\t")
+                if ((tokens[0] == OOL) or (tokens[0] in self.vocab)):
+                    self.word_indices[tokens[0]] = i
+                    self.embeddings[i,:] = torch.FloatTensor([float(tokens[j]) for j in range(1, self.dim + 1)])
+                    i += 1
+        self.word_indices[OOV] = self.word_indices[OOL] # any 'OOV' word in our vocab should correspond to 'OOL' in our lexicon
 
         # We wrap the following matrices in nn.Parameter objects.
         # This lets PyTorch know that these are parameters of the model
@@ -330,6 +367,10 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         assert isinstance(p, float)  # checks that we'll adhere to the return type annotation, which is inherited from superclass
         return p
 
+    # Helper function to retrieve the index of a word in our matrix of embeddings
+    def _word_index(self, x: Wordtype) -> int:
+        return self.word_indices[(x if (x in self.word_indices) else OOL)]
+
     def log_prob(self, x: Wordtype, y: Wordtype, z: Wordtype) -> torch.Tensor:
         """Return log p(z | xy) according to this language model."""
         # TODO: IMPLEMENT ME!
@@ -344,7 +385,14 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         # The operator `@` is a nice way to write matrix multiplication:
         # you can write J @ K as shorthand for torch.mul(J, K).
         # J @ K looks more like the usual math notation.
-        raise NotImplementedError("Implement me!")
+
+        # We take the transpose of the matrix multiplication expression in equation (7) of the reading materials, so our `self.X` and `self.Y`
+        # actually correspond to the transposes of the matrices X and Y defined in the reading materials. However, since X and Y are square
+        # matrices and are only being used internally for this log-prob computation, there is no problem with working with X^T and Y^T.
+        stuff = torch.mm(self.embeddings, torch.mm(self.X, torch.unsqueeze(self.embeddings[self._word_index(x),:], 1)) + \
+                          torch.mm(self.Y, torch.unsqueeze(self.embeddings[self._word_index(y),:], 1)))
+        #raise NotImplementedError("Implement me!")
+        return stuff[self._word_index(z)] - torch.logsumexp(stuff, 0) #torch.sum(stuff.exp()).log()
 
     def train(self, file: Path):    # type: ignore
         
@@ -376,21 +424,28 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         # To get the training examples, you can use the `read_trigrams` function
         # we provided, which will iterate over all N trigrams in the training
         # corpus.
+        trigrams_iterator = read_trigrams(file, self.vocab)
+        epochs = 10
         #
         # For each successive training example i, compute the stochastic
         # objective F_i(θ).  This is called the "forward" computation. Don't
         # forget to include the regularization term.
-        #
-        # To get the gradient of this objective (∇F_i(θ)), call the `backward`
-        # method on the number you computed at the previous step.  This invokes
-        # back-propagation to get the gradient of this number with respect to
-        # the parameters θ.  This should be easier than implementing the
-        # gradient method from the handout.
-        #
-        # Finally, update the parameters in the direction of the gradient, as
-        # shown in Algorithm 1 in the reading handout.  You can do this `+=`
-        # yourself, or you can call the `step` method of the `optimizer` object
-        # we created above.  See the reading handout for more details on this.
+        for (x, y, z) in tqdm.tqdm(trigrams_iterator, total=epochs*N):
+            optimizer.zero_grad()
+            loss = self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y))) - self.log_prob(x, y, z)
+            #
+            # To get the gradient of this objective (∇F_i(θ)), call the `backward`
+            # method on the number you computed at the previous step.  This invokes
+            # back-propagation to get the gradient of this number with respect to
+            # the parameters θ.  This should be easier than implementing the
+            # gradient method from the handout.
+            loss.backward()
+            #
+            # Finally, update the parameters in the direction of the gradient, as
+            # shown in Algorithm 1 in the reading handout.  You can do this `+=`
+            # yourself, or you can call the `step` method of the `optimizer` object
+            # we created above.  See the reading handout for more details on this.
+            optimizer.step()
         #
         # For the EmbeddingLogLinearLanguageModel, you should run SGD
         # optimization for 10 epochs and then stop.  You might want to print
@@ -425,6 +480,8 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         # get its gradient -- i.e., to find out how rapidly it would change if
         # each parameter were changed slightly.
 
+import time
+from SGD_convergent import ConvergentSGD
 
 class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
     # TODO: IMPLEMENT ME!
@@ -453,4 +510,69 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
     # * You could use a different optimization algorithm instead of SGD, such
     #   as `torch.optim.Adam` (https://pytorch.org/docs/stable/optim.html).
     #
-    pass
+
+    def __init__(self, vocab: Vocab, lexicon_file: Path, l2: float, train_batch_size: int, val_batch_size: int) -> None:
+        super().__init__(vocab, lexicon_file, l2)
+        if train_batch_size <= 0:
+            log.error(f"Training batch size value was {train_batch_size}")
+            raise ValueError("You must include a positive training batch size")
+        if val_batch_size <= 0:
+            log.error(f"Validation batch size value was {val_batch_size}")
+            raise ValueError("You must include a positive validation batch size")
+        self.train_batch_size = train_batch_size
+        self.val_batch_size = val_batch_size
+
+    # Cross-Entropy Loss with L2 Regularization
+    def xent_loss(self, trigram_batch):
+        return (self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y))) - \
+                sum([self.log_prob(x, y, z) for (x, y, z) in zip(*trigram_batch)]))/len(trigram_batch[0])
+
+    def train(self, train_file: Path, val_file: Path, max_epochs: int):    # type: ignore
+        N = num_tokens_general(train_file)
+        M = num_tokens_general(val_file)
+
+        # Optimization hyperparameters.
+        gamma0 = 0.0005  # initial learning rate
+        optimizer = ConvergentSGD(self.parameters(), gamma0, 2*self.l2/N)
+        # Initialize the parameter matrices to be full of zeros.
+        nn.init.xavier_uniform_(self.X)   # type: ignore
+        nn.init.xavier_uniform_(self.Y)   # type: ignore
+        max_epochs = max(1, max_epochs) # just a sanity check to ensure this value is positive
+
+        # Mini-batch dataloaders.
+        train_dataloader = DataLoader(list(read_trigrams_general(train_file, self.vocab)), \
+                                      batch_size=min(N, self.train_batch_size), \
+                                      sampler=SubsetRandomSampler(range(N)))
+        val_dataloader = DataLoader(list(read_trigrams_general(val_file, self.vocab)), \
+                                    batch_size=min(M, self.val_batch_size), \
+                                    sampler=SubsetRandomSampler(range(M)))
+        log.info(f"Start optimizing on {N} training tokens...")
+        
+        tqdm_threshold = 60
+        epoch_duration = 69 # any bogus constant greater than `tqdm_threshold` works here
+        
+        for epoch in range(max_epochs):
+            log.info(f"Running epoch {epoch+1}/{max_epochs} ...")
+            epoch_start = time.time()
+            train_loss = 0
+            train_batch_count = 0
+            for batch in (tqdm.tqdm(train_dataloader, total=len(train_dataloader)) if (epoch_duration > tqdm_threshold) else train_dataloader):
+                optimizer.zero_grad()
+                loss = self.xent_loss(batch)
+                train_loss += loss.item()
+                train_batch_count += 1
+                loss.backward()
+                optimizer.step()
+            log.info(f"Training loss: {train_loss/train_batch_count:g}")
+            val_loss = 0
+            val_batch_count = 0
+            with torch.no_grad():
+                for val_batch in (tqdm.tqdm(val_dataloader, total=len(val_dataloader)) if (epoch_duration > tqdm_threshold) else val_dataloader):
+                    val_loss += self.xent_loss(val_batch).item()
+                    val_batch_count += 1
+            log.info(f"Validation loss: {val_loss/val_batch_count:g}")
+            ## TODO: Implement early stopping ?
+            epoch_duration = time.time() - epoch_start
+            log.info(f"Epoch {epoch+1} finished in {epoch_duration:g} seconds.")
+
+        log.info("Done optimizing.")

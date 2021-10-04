@@ -79,6 +79,32 @@ def parse_args() -> argparse.Namespace:
         default=0.0,
         help="Strength of L2 regularization in log-linear models (default 0)",
     )
+    
+    # for improved log-linear smoothers
+    parser.add_argument(
+        "--max_epochs",
+        type=int,
+        default=20,
+        help="Maximum number of training epochs (default 20)",
+    )
+    parser.add_argument(
+        "--train_batch_size",
+        type=int,
+        default=64,
+        help="Size of each training data batch (default 64)",
+    )
+    parser.add_argument(
+        "--val_batch_size",
+        type=int,
+        default=64,
+        help="Size of each validation data batch (default 64)",
+    )
+    parser.add_argument(
+        "--val_file",
+        type=Path,
+        default=None,
+        help="Validation corpus (as a single file) needed for improved log-linear models (default None)",
+    )
 
     # for verbosity of output
     verbosity = parser.add_mutually_exclusive_group()
@@ -139,12 +165,21 @@ def main():
         if args.lexicon is None:
             log.error("{args.smoother} requires a lexicon")   # would be better to check this in argparse
             sys.exit(1)
-        lm = ImprovedLogLinearLanguageModel(vocab, args.lexicon, args.l2_regularization)
+        # Modification here to account for additional args required for the improved log-linear model's constructor
+        lm = ImprovedLogLinearLanguageModel(vocab, args.lexicon, args.l2_regularization, args.train_batch_size, args.val_batch_size)
     else:
         raise ValueError(f"Don't recognize smoother name {args.smoother}")
 
-    log.info("Training...")
-    lm.train(args.train_file)
+    # Modification here to account for different arguments for the improved log-linear model's `train` function
+    if args.smoother == IMPROVED:
+        if args.val_file is None:
+            log.error("{args.smoother} requires a validation corpus")   # would be better to check this in argparse
+            sys.exit(1)
+        log.info("Training...")
+        lm.train(args.train_file, args.val_file, args.max_epochs)
+    else:
+        log.info("Training...")
+        lm.train(args.train_file)
     lm.save(destination=model_path)
 
 

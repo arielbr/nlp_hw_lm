@@ -32,6 +32,10 @@ from itertools import chain
 from typing import Counter
 from collections import Counter
 
+import time
+import tqdm
+from SGD_convergent import ConvergentSGD
+
 log = logging.getLogger(Path(__file__).stem)  # Basically the only okay global variable.
 
 ##### TYPE DEFINITIONS (USED FOR TYPE ANNOTATIONS)
@@ -303,6 +307,58 @@ class AddLambdaLanguageModel(LanguageModel):
         # over all values of typeZ will give 1, so sum_z p(z | ...) = 1
         # as is required for any probability function.
 
+    # A new custom-made function to numerically approximate the lambda value that minimizes
+    # average cross-entropy per token for two trained models that are smoothed with the same lambda.
+    # It is okay for this method to accept any types of LanguageModel, since the only local variables
+    # of these models that we use are the event/context counts and the vocabulary.
+    @classmethod
+    def learn_lambda(cls, model1: LanguageModel, model2: LanguageModel, dev1: Path, dev2: Path):
+        # Feel free to customize these parameters
+        maxit = 50000
+        # Cool choices of (initial_lambda, learning_rate) : (2.0, 0.01), (0.005, 0.001)
+        initial_lambda = 0.5
+        learning_rate = 0.001
+        tol = 0.00000001
+        print_level = 1000
+
+        lamb = nn.Parameter(torch.tensor(initial_lambda), requires_grad=True)
+        V1 = len(model1.vocab)
+        V2 = len(model2.vocab)
+        N1 = num_tokens_general(dev1)
+        N2 = num_tokens_general(dev2)
+        den = (N1 + N2)*torch.log(torch.tensor(2.0)).item()
+        optimizer = ConvergentSGD([lamb], learning_rate, 0.1)
+        prev_lamb = -1.0
+        counts1 = [(model1.event_count[x, y, z], model1.context_count[x, y]) for (x, y, z) in read_trigrams_general(dev1, model1.vocab)]
+        counts2 = [(model2.event_count[x, y, z], model2.context_count[x, y]) for (x, y, z) in read_trigrams_general(dev2, model2.vocab)]
+        event_counts1 = torch.FloatTensor([float(c[0]) for c in counts1])
+        context_counts1 = torch.FloatTensor([float(c[1]) for c in counts1])
+        event_counts2 = torch.FloatTensor([float(c[0]) for c in counts2])
+        context_counts2 = torch.FloatTensor([float(c[1]) for c in counts2])
+        onesies1 = torch.ones(len(counts1), dtype=torch.float)
+        onesies2 = torch.ones(len(counts2), dtype=torch.float)
+        it = 0
+        while ((it < maxit) and (abs(lamb.item() - prev_lamb) >= tol)):
+            optimizer.zero_grad()
+            prev_lamb = lamb.item()
+            xent = torch.sum(torch.log(context_counts1 + V1*lamb*onesies1) - torch.log(event_counts1 + lamb*onesies1))
+            xent += torch.sum(torch.log(context_counts2 + V2*lamb*onesies2) - torch.log(event_counts2 + lamb*onesies2))
+            xent *= 1/den
+            if (print_level >= 1):
+                if ((it % print_level) == 0):
+                    print(prev_lamb, xent.item())
+            xent.backward()
+            optimizer.step()
+            if (lamb.item() < 0.0):
+                lamb.data = torch.tensor(0.0)
+            it += 1
+        if (it >= maxit):
+            print("Failed to converge in " + str(it) + " iterations")
+        final_xent = torch.sum(torch.log(context_counts1 + V1*lamb*onesies1) - torch.log(event_counts1 + lamb*onesies1)).item()
+        final_xent += torch.sum(torch.log(context_counts2 + V2*lamb*onesies2) - torch.log(event_counts2 + lamb*onesies2)).item()
+        final_xent *= 1/den
+        return lamb.item(), final_xent
+
 
 class BackoffAddLambdaLanguageModel(AddLambdaLanguageModel):
     def __init__(self, vocab: Vocab, lambda_: float) -> None:
@@ -319,7 +375,6 @@ class BackoffAddLambdaLanguageModel(AddLambdaLanguageModel):
         p_zy = (self.event_count[(y, z)] + self.lambda_*self.vocab_size*p_z)/(self.context_count[(y,)] + self.lambda_*self.vocab_size)
         return (self.event_count[(x, y, z)] + self.lambda_*self.vocab_size*p_zy)/(self.context_count[(x, y)] + self.lambda_*self.vocab_size)
 
-import tqdm
 
 class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
     # Note the use of multiple inheritance: we are both a LanguageModel and a torch.nn.Module.
@@ -480,8 +535,6 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         # get its gradient -- i.e., to find out how rapidly it would change if
         # each parameter were changed slightly.
 
-import time
-from SGD_convergent import ConvergentSGD
 
 class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
     # TODO: IMPLEMENT ME!

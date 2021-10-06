@@ -25,10 +25,11 @@ LEXICON_ALIAS="wgs50"
 #LEXICON_ALIAS="c10"
 
 # General settings
+# TODO: Add learning rate to the list of command line arguments, and then add it to this config script!
 L2REG=1.0
 TRAIN_BATCH_SIZE=64
 VAL_BATCH_SIZE=64
-MAX_EPOCHS=50
+MAX_EPOCHS=40
 
 MODEL_BASENAME=$GEN_OR_SPAM
 MODEL_OUTPUT=$MODEL_BASENAME"_"$LEXICON_ALIAS"_"$SMOOTHER_ALIAS".model"

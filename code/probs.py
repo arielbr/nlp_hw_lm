@@ -421,7 +421,8 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
                     self.word_indices[tokens[0]] = i
                     self.embeddings[i,:] = torch.FloatTensor([float(tokens[j]) for j in range(1, self.dim + 1)])
                     i += 1
-        self.word_indices[OOV] = self.word_indices[OOL] # any 'OOV' word in our vocab should correspond to 'OOL' in our lexicon
+        # The line below is probably only necessary if 'OOV' appears in the lexicon (which should not happen).
+        #self.word_indices[OOV] = self.word_indices[OOL] # any 'OOV' word in our vocab should correspond to 'OOL' in our lexicon
 
         # We wrap the following matrices in nn.Parameter objects.
         # This lets PyTorch know that these are parameters of the model
@@ -502,37 +503,45 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         trigrams_list = list(read_trigrams(file, self.vocab))
         total_epochs = 10
         verbose = True
+        single_example_loss = True
         #
         # For each successive training example i, compute the stochastic
         # objective F_i(θ).  This is called the "forward" computation. Don't
         # forget to include the regularization term.
         for epoch in range(total_epochs):
-            optimizer.zero_grad()
-            avg_loss = (self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y))) - \
-                    sum([self.log_prob(x, y, z) for (x, y, z) in trigrams_list]))/N
-            avg_loss.backward()
-            optimizer.step()
-            #for (x, y, z) in trigrams_list: #tqdm.tqdm(trigrams_list, total=total_epochs*N):
-            #    optimizer.zero_grad()
-            #    loss = self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y))) - self.log_prob(x, y, z)
-            #    #
-            #    # To get the gradient of this objective (∇F_i(θ)), call the `backward`
-            #    # method on the number you computed at the previous step.  This invokes
-            #    # back-propagation to get the gradient of this number with respect to
-            #    # the parameters θ.  This should be easier than implementing the
-            #    # gradient method from the handout.
-            #    loss.backward()
-            #    #
-            #    # Finally, update the parameters in the direction of the gradient, as
-            #    # shown in Algorithm 1 in the reading handout.  You can do this `+=`
-            #    # yourself, or you can call the `step` method of the `optimizer` object
-            #    # we created above.  See the reading handout for more details on this.
-            #    optimizer.step()
-            if verbose:
-                #avg_loss = (self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y))) - \
-                #        sum([self.log_prob(x, y, z) for (x, y, z) in trigrams_list]))/N
-                fval = -avg_loss.item()
-                print(f"Epoch {epoch+1}: F = {fval:g}")
+            if not(single_example_loss):
+                optimizer.zero_grad()
+                avg_loss = (self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y))) - \
+                        sum([self.log_prob(x, y, z) for (x, y, z) in trigrams_list]))/N
+                avg_loss.backward()
+                optimizer.step()
+                if verbose:
+                    fval = -avg_loss.item()
+                    print(f"Epoch {epoch+1}: F = {fval:g}")
+            else:
+                for (x, y, z) in trigrams_list: #tqdm.tqdm(trigrams_list, total=N):
+                    optimizer.zero_grad()
+                    loss = self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y)))/N - self.log_prob(x, y, z)
+                    #
+                    # To get the gradient of this objective (∇F_i(θ)), call the `backward`
+                    # method on the number you computed at the previous step.  This invokes
+                    # back-propagation to get the gradient of this number with respect to
+                    # the parameters θ.  This should be easier than implementing the
+                    # gradient method from the handout.
+                    loss.backward()
+                    #
+                    # Finally, update the parameters in the direction of the gradient, as
+                    # shown in Algorithm 1 in the reading handout.  You can do this `+=`
+                    # yourself, or you can call the `step` method of the `optimizer` object
+                    # we created above.  See the reading handout for more details on this.
+                    optimizer.step()
+                if verbose:
+                    with torch.no_grad():
+                        #reg_term = self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y))).item() / N
+                        avg_loss = (self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y))) - \
+                                sum([self.log_prob(x, y, z) for (x, y, z) in trigrams_list]))/N
+                        fval = -avg_loss.item()
+                        print(f"Epoch {epoch+1}: F = {fval:g}") #, L2 penalty = {reg_term:g}")
         #
         # For the EmbeddingLogLinearLanguageModel, you should run SGD
         # optimization for 10 epochs and then stop.  You might want to print
@@ -608,10 +617,12 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
         self.train_batch_size = train_batch_size
         self.val_batch_size = val_batch_size
 
-    # Cross-Entropy Loss with L2 Regularization
-    def xent_loss(self, trigram_batch):
-        return (self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y))) - \
-                sum([self.log_prob(x, y, z) for (x, y, z) in zip(*trigram_batch)]))/len(trigram_batch[0])
+    # Cross-Entropy Loss of a batch with L2 Regularization
+    # Correction made on 10/06/21: Regularization term should be divided by N, the number of samples in the underlying dataset.
+    # Therefore, the loss of a single mini-batch depends on a parameter that is not an intrinsic property of that mini-batch.
+    def xent_loss(self, trigram_batch, N):
+        return self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y)))/N - \
+                sum([self.log_prob(x, y, z) for (x, y, z) in zip(*trigram_batch)])/len(trigram_batch[0])
 
     def train(self, train_file: Path, val_file: Path, max_epochs: int):    # type: ignore
         N = num_tokens_general(train_file)
@@ -641,22 +652,24 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
             log.info(f"Running epoch {epoch+1}/{max_epochs} ...")
             epoch_start = time.time()
             train_loss = 0
-            train_batch_count = 0
+            #train_batch_count = 0
             for batch in (tqdm.tqdm(train_dataloader, total=len(train_dataloader)) if (epoch_duration > tqdm_threshold) else train_dataloader):
                 optimizer.zero_grad()
-                loss = self.xent_loss(batch)
-                train_loss += loss.item()
-                train_batch_count += 1
+                loss = self.xent_loss(batch, N)
+                train_loss += len(batch[0])*loss.item()
+                #train_batch_count += 1
                 loss.backward()
                 optimizer.step()
-            log.info(f"Training loss: {train_loss/train_batch_count:g}")
+            #log.info(f"Training loss: {train_loss/train_batch_count:g}")
+            log.info(f"Training loss: {train_loss/N:g}")
             val_loss = 0
-            val_batch_count = 0
+            #val_batch_count = 0
             with torch.no_grad():
                 for val_batch in (tqdm.tqdm(val_dataloader, total=len(val_dataloader)) if (epoch_duration > tqdm_threshold) else val_dataloader):
-                    val_loss += self.xent_loss(val_batch).item()
-                    val_batch_count += 1
-            log.info(f"Validation loss: {val_loss/val_batch_count:g}")
+                    val_loss += len(val_batch[0])*self.xent_loss(val_batch, M).item()
+                    #val_batch_count += 1
+            #log.info(f"Validation loss: {val_loss/val_batch_count:g}")
+            log.info(f"Validation loss: {val_loss/M:g}")
             ## TODO: Implement early stopping ?
             epoch_duration = time.time() - epoch_start
             log.info(f"Epoch {epoch+1} finished in {epoch_duration:g} seconds.")

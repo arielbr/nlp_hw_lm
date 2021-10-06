@@ -96,15 +96,15 @@ def num_tokens(file: Path) -> int:
     """Give the number of tokens in file, including EOS."""
     return sum(1 for _ in read_tokens(file))
 
-# TODO: Implement subdirectory recursion?
 def num_tokens_general(file: Path) -> int:
     """Give the number of tokens in file, including EOS. If `file` does not specify
     a directory, then this function behaves identically to `num_tokens`. If `file`
     specifies a directory, then this function returns the total number of tokens in
-    all non-directory files in this directory (no subdirectory recursion)."""
+    all non-directory files in this directory (subdirectory recursion can be turned on or off)."""
     if not(file.is_dir()):
         return num_tokens(file)
-    return sum([num_tokens(stuff) for stuff in file.iterdir() if not(stuff.is_dir())])
+    # Use `file.iterdir()` in place of `file.rglob("*")` to avoid subdirectory recursion
+    return sum([num_tokens(stuff) for stuff in file.rglob("*") if not(stuff.is_dir())])
 
 
 def read_trigrams(file: Path, vocab: Vocab) -> Iterable[Trigram]:
@@ -141,15 +141,15 @@ def draw_trigrams_forever(file: Path,
             for trigram in random.sample(pool, len(pool)):
                 yield trigram
 
-# TODO: Implement subdirectory recursion?
 def read_trigrams_general(file: Path, vocab: Vocab) -> Iterable[Trigram]:
     """Iterator over the trigrams in file. If `file` does not specify a directory,
     then this function behaves identically to `read_trigrams`. If `file` specifies
     a directory, then this function returns an iterator over all trigrams that occur
-    in any non-directory file in this directory (no subdirectory recursion)."""
+    in any non-directory file in this directory (subdirectory recursion can be turned on or off)."""
     if not(file.is_dir()):
         return read_trigrams(file, vocab)
-    return chain(*[read_trigrams(stuff, vocab) for stuff in file.iterdir() if not(stuff.is_dir())])
+    # Use `file.iterdir()` in place of `file.rglob("*")` to avoid subdirectory recursion
+    return chain(*[read_trigrams(stuff, vocab) for stuff in file.rglob("*") if not(stuff.is_dir())])
 
 
 ##### READ IN A VOCABULARY (e.g., from a file created by build_vocab.py)
@@ -477,7 +477,7 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         ### The `type: ignore` comment above tells the type checker to ignore this inconsistency.
         
         # Optimization hyperparameters.
-        gamma0 = 0.1  # initial learning rate
+        gamma0 = 0.01  # initial learning rate - recommended to use 0.1 for gen-span task and 0.01 for english-spanish task
 
         # This is why we needed the nn.Parameter above.
         # The optimizer needs to know the list of parameters
@@ -489,7 +489,8 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         nn.init.zeros_(self.Y)   # type: ignore
 
         N = num_tokens(file)
-        log.info("Start optimizing on {N} training tokens...")
+        # log.info("Start optimizing on {N} training tokens...")
+        print("Training on corpus " + file.parts[-1])
 
         #####################
         # TODO: Implement your SGD here by taking gradient steps on a sequence
@@ -498,28 +499,40 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         # To get the training examples, you can use the `read_trigrams` function
         # we provided, which will iterate over all N trigrams in the training
         # corpus.
-        trigrams_iterator = read_trigrams(file, self.vocab)
-        epochs = 10
+        trigrams_list = list(read_trigrams(file, self.vocab))
+        total_epochs = 10
+        verbose = True
         #
         # For each successive training example i, compute the stochastic
         # objective F_i(θ).  This is called the "forward" computation. Don't
         # forget to include the regularization term.
-        for (x, y, z) in tqdm.tqdm(trigrams_iterator, total=epochs*N):
+        for epoch in range(total_epochs):
             optimizer.zero_grad()
-            loss = self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y))) - self.log_prob(x, y, z)
-            #
-            # To get the gradient of this objective (∇F_i(θ)), call the `backward`
-            # method on the number you computed at the previous step.  This invokes
-            # back-propagation to get the gradient of this number with respect to
-            # the parameters θ.  This should be easier than implementing the
-            # gradient method from the handout.
-            loss.backward()
-            #
-            # Finally, update the parameters in the direction of the gradient, as
-            # shown in Algorithm 1 in the reading handout.  You can do this `+=`
-            # yourself, or you can call the `step` method of the `optimizer` object
-            # we created above.  See the reading handout for more details on this.
+            avg_loss = (self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y))) - \
+                    sum([self.log_prob(x, y, z) for (x, y, z) in trigrams_list]))/N
+            avg_loss.backward()
             optimizer.step()
+            #for (x, y, z) in trigrams_list: #tqdm.tqdm(trigrams_list, total=total_epochs*N):
+            #    optimizer.zero_grad()
+            #    loss = self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y))) - self.log_prob(x, y, z)
+            #    #
+            #    # To get the gradient of this objective (∇F_i(θ)), call the `backward`
+            #    # method on the number you computed at the previous step.  This invokes
+            #    # back-propagation to get the gradient of this number with respect to
+            #    # the parameters θ.  This should be easier than implementing the
+            #    # gradient method from the handout.
+            #    loss.backward()
+            #    #
+            #    # Finally, update the parameters in the direction of the gradient, as
+            #    # shown in Algorithm 1 in the reading handout.  You can do this `+=`
+            #    # yourself, or you can call the `step` method of the `optimizer` object
+            #    # we created above.  See the reading handout for more details on this.
+            #    optimizer.step()
+            if verbose:
+                #avg_loss = (self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y))) - \
+                #        sum([self.log_prob(x, y, z) for (x, y, z) in trigrams_list]))/N
+                fval = -avg_loss.item()
+                print(f"Epoch {epoch+1}: F = {fval:g}")
         #
         # For the EmbeddingLogLinearLanguageModel, you should run SGD
         # optimization for 10 epochs and then stop.  You might want to print
@@ -531,7 +544,8 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         #     read_trigrams(file)
         #####################
 
-        log.info("done optimizing.")
+        print(f"Finished training on {N} tokens")
+        #log.info("done optimizing.")
 
         # So how does the `backward` method work?
         #

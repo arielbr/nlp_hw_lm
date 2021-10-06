@@ -57,14 +57,12 @@ def main():
 
     lm1 = LanguageModel.load(args.model_1)
     lm2 = LanguageModel.load(args.model_2)
-    # We use natural log for our internal computations and that's
-    # the kind of log-probability that file_log_prob returns.
-    # But we'd like to print a value in bits: so we convert
-    # log base e to log base 2 at print time, by dividing by log(2).
 
     best_lambda, best_xent = AddLambdaLanguageModel.learn_lambda(lm1, lm2, args.dev_1, args.dev_2)
     print(f"Best lambda: {best_lambda:g}")
     print(f"Best cross-entropy: {best_xent:g} bits per token")
+
+    # TODO: Compute accuracy values over dev files!
 
 
 if __name__ == "__main__":

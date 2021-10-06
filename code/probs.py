@@ -96,6 +96,7 @@ def num_tokens(file: Path) -> int:
     """Give the number of tokens in file, including EOS."""
     return sum(1 for _ in read_tokens(file))
 
+# TODO: Implement subdirectory recursion?
 def num_tokens_general(file: Path) -> int:
     """Give the number of tokens in file, including EOS. If `file` does not specify
     a directory, then this function behaves identically to `num_tokens`. If `file`
@@ -140,6 +141,7 @@ def draw_trigrams_forever(file: Path,
             for trigram in random.sample(pool, len(pool)):
                 yield trigram
 
+# TODO: Implement subdirectory recursion?
 def read_trigrams_general(file: Path, vocab: Vocab) -> Iterable[Trigram]:
     """Iterator over the trigrams in file. If `file` does not specify a directory,
     then this function behaves identically to `read_trigrams`. If `file` specifies
@@ -346,6 +348,7 @@ class AddLambdaLanguageModel(LanguageModel):
             xent *= 1/den
             if (print_level >= 1):
                 if ((it % print_level) == 0):
+                    # TODO: Use log.info instead of stdout here?
                     print(prev_lamb, xent.item())
             xent.backward()
             optimizer.step()
@@ -353,11 +356,27 @@ class AddLambdaLanguageModel(LanguageModel):
                 lamb.data = torch.tensor(0.0)
             it += 1
         if (it >= maxit):
+            # TODO: Use log.info instead of stdout here?
             print("Failed to converge in " + str(it) + " iterations")
         final_xent = torch.sum(torch.log(context_counts1 + V1*lamb*onesies1) - torch.log(event_counts1 + lamb*onesies1)).item()
         final_xent += torch.sum(torch.log(context_counts2 + V2*lamb*onesies2) - torch.log(event_counts2 + lamb*onesies2)).item()
         final_xent *= 1/den
         return lamb.item(), final_xent
+
+    # A new custom-made function to construct an add-lambda smoothed LM from an unsmoothed LM.
+    # If the optional argument `lambda_` is not specified, then it defaults to 0, preserving the
+    # behavior of the unsmoothed LM.
+    @classmethod
+    def from_unsmoothed_lm(cls, lm: LanguageModel, lambda_: float = 0.0) -> AddLambdaLanguageModel:
+        # If the input language model is already a smoothed LM, then
+        # all we need to do is change its existing lambda value.
+        if (isinstance(lm, AddLambdaLanguageModel)):
+            lm.lambda_ = lambda_
+            return lm
+        smoothed_lm = AddLambdaLanguageModel(lm.vocab, lambda_)
+        smoothed_lm.event_count = lm.event_count
+        smoothed_lm.context_count = lm.context_count
+        return smoothed_lm
 
 
 class BackoffAddLambdaLanguageModel(AddLambdaLanguageModel):

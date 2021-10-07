@@ -157,19 +157,19 @@ def sample(model_path: Path, num_sentences = 10, max_depth: int = 10) -> list:
     while len(sentences) < num_sentences:
         sentence = ""
         x, y = 'BOS', 'BOS'
+        max_word = None
         for j in range(max_depth):
-            max_word = None
             max_prob = 0
             for v in vocab:
-                next_prob = model.prob(x, y, z)
+                next_prob = model.prob(x, y, v)
                 if (next_prob > max_prob):
                     max_prob = next_prob
                     max_word = v
-            if v == 'EOS':
+            if max_word == 'EOS':
                 break
             sentence.append(' ' + x)
-            x, y = y, v
-        if v != 'EOS':
+            x, y = y, max_word
+        if max_word != 'EOS':
             continue
         sentences.append(sentence[1:] + y + v) # get rid of the beginning space 
     return sentences

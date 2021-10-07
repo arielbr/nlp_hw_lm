@@ -55,7 +55,7 @@ def parse_args() -> argparse.Namespace:
     verbosity.add_argument(
         "-v",
         "--verbose",
-        action="store_true",
+        action="store_const",
         const=logging.DEBUG,
         default=logging.INFO,
     )

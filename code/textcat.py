@@ -43,6 +43,12 @@ def parse_args() -> argparse.Namespace:
         default=False,
         help="Set to True to interpret `prior_1` as the natural logarithm of the prior probability",
     )
+    parser.add_argument(
+        "--accuracy_by_length",
+        type=bool,
+        default=False,
+        help="Check accuracy of .txt length intervals of 50.",
+    )
 
     verbosity = parser.add_mutually_exclusive_group()
     verbosity.add_argument(
@@ -60,7 +66,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def file_log_prob(file: Path, lm: LanguageModel) -> float:
-    """The file contains one sentence per line. Return the total
+    """
+    The file contains one sentence per line. Return the total
     log-probability of all these sentences, under the given language model.
     (This is a natural log, as for all our internal computations.)
     """

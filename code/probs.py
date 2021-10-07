@@ -31,6 +31,7 @@ from torch.utils.data import Dataset, DataLoader, SubsetRandomSampler
 from itertools import chain
 from typing import Counter
 from collections import Counter
+import numpy as np
 
 import time
 import tqdm
@@ -157,19 +158,15 @@ def sample(model_path: Path, num_sentences = 10, max_depth: int = 10) -> list:
     while len(sentences) < num_sentences:
         sentence = ""
         x, y = 'BOS', 'BOS'
-        max_word = None
         for j in range(max_depth):
-            max_prob = 0
-            for v in vocab:
-                next_prob = model.prob(x, y, v)
-                if (next_prob > max_prob):
-                    max_prob = next_prob
-                    max_word = v
-            if max_word == 'EOS':
+            vocab_list = list(vocab)
+            vocab_prob = [model.prob(x, y, z) for z in vocab_list]
+            word = np.random.choice(vocab_list, p=vocab_prob)
+            x, y = y, word
+            sentence = sentence + ' ' + word
+            if word == 'EOS':
                 break
-            sentence = sentence + ' ' + x
-            x, y = y, max_word
-        if max_word != 'EOS':
+        if word != 'EOS':
             continue
         sentences.append(sentence[1:] + y + v) # get rid of the beginning space 
     return sentences

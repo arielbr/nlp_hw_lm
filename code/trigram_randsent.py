@@ -29,7 +29,7 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument(
         "--max_length",
-        type=bool,
+        type=int,
         default=False,
         help="Maximum length of each sentence generated",
     )
@@ -41,7 +41,8 @@ def main():
     if (args.max_length):
         print('max_length is', args.max_length)
         sample(args.model, args.num_sentences, args.max_length)
-    sample(args.model, args.num_sentences)
+    else:
+        sample(args.model, args.num_sentences)
 
 
 

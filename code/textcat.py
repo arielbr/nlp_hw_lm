@@ -101,6 +101,16 @@ def binary_classifier_accuracy(model1: LanguageModel, model2: LanguageModel, dev
     string_form = str(correct) + "/" + str(total)
     return numerical_acc, string_form
 
+def group_files_by_fixed_length_bins(file_directory: list, num_items_per_bin: int = 10):
+    file_directory = sorted(file_directory, key=lambda file: int(str(file).split['.'][-2]))
+    num_bins = (len(file_directory) - 1) // num_items_per_bin  + 1 
+    last_bin_length = len(file_directory) % num_items_per_bin
+    bins = []
+    for i in range(num_bins):
+        temp = file_directory[range(i * num_items_per_bin, (i+1) * num_items_per_bin)]
+        bins.append(temp)
+    return bins
+
 
 # The base file names in the subtree of `file_directory` should have the form "xx.length.fileID".
 # We want to extract the integer value in place of 'length' in this file name format.
@@ -110,9 +120,6 @@ def group_files_by_length(file_directory: list, num_lengths_per_bin: int = 0, nu
     file_list = []
     length_list = []
     max_file_length = 0
-
-    sorted(file_directory, key=lambda file: int(str(file).split['.'][-2]))
-    print(file_directory[:10])
 
     for f in file_directory:
         # Just a safety check - we want to skip paths that describe directories
@@ -148,8 +155,7 @@ def group_files_by_length(file_directory: list, num_lengths_per_bin: int = 0, nu
     return bins, num_lengths_per_bin
 
 def check_accuracy(list_test_files, model1, model2, prior_1):
-    bins, num_lengths_per_bin = group_files_by_length(list_test_files)
-    print(num_lengths_per_bin)
+    bins = group_files_by_fixed_length_bins(list_test_files)
     accuracy = []
     for b in bins:
         numerical_acc, _ = binary_classifier_accuracy(model1, model2, b, prior_1)

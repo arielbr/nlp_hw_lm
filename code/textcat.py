@@ -46,6 +46,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "-a",
         "--accuracy",
+        type=bool,
         default=False,
         help="Check accuracy of .txt length intervals of 50.",
     )
@@ -156,9 +157,10 @@ def main():
         if (args.prior_1 <= 0.0 or args.prior_1 >= 1.0):
             log.error(f"Invalid prior probability {args.prior_1:g} (must be strictly between 0 and 1)")
             sys.exit(1)
-
+    
     if (args.accuracy):
-        print("accuracy detected")
+        print("accuracy")
+        sys.exit(1)
 
     log.info("Testing...")
     lm_1 = LanguageModel.load(args.model_1)

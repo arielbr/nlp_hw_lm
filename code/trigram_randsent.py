@@ -39,10 +39,10 @@ def parse_args() -> argparse.Namespace:
 def main():
     args = parse_args()
     if (args.max_length):
-        sample(args.model, args.num_sentences, args.max_length)
+        sentences = sample(args.model, args.num_sentences, args.max_length)
     else:
-        sample(args.model, args.num_sentences)
-
+        sentences = sample(args.model, args.num_sentences)
+    print(sentences)
 
 
 if __name__ == "__main__":

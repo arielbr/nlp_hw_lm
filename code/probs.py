@@ -151,7 +151,6 @@ def read_trigrams_general(file: Path, vocab: Vocab) -> Iterable[Trigram]:
 
 def sample(model_path: Path, num_sentences = 10, max_depth: int = 10) -> list:
     """sample given number of list with optionally a max depth by a chosen model."""
-    print('start sampling')
     sentences = []
     model = LanguageModel.load(model_path)
     vocab = model.vocab
@@ -162,13 +161,14 @@ def sample(model_path: Path, num_sentences = 10, max_depth: int = 10) -> list:
             vocab_list = list(vocab)
             vocab_prob = [model.prob(x, y, z) for z in vocab_list]
             word = np.random.choice(vocab_list, p=vocab_prob)
-            x, y = y, word
-            sentence = sentence + ' ' + word
             if word == 'EOS':
                 break
+            x, y = y, word
+            sentence = sentence + ' ' + word
         if word != 'EOS':
-            continue
-        sentences.append(sentence[1:] + y + v) # get rid of the beginning space 
+            sentences.append(sentence[1:] + ' ...')
+        else:
+            sentences.append(sentence[1:]) # get rid of the beginning space 
     return sentences
 
 ##### READ IN A VOCABULARY (e.g., from a file created by build_vocab.py)

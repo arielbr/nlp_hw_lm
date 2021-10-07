@@ -147,6 +147,15 @@ def group_files_by_length(file_directory: list, num_lengths_per_bin: int = 0, nu
         bins[(length_list[i] - 1) // num_lengths_per_bin].append(file_list[i])
     return bins, num_lengths_per_bin
 
+def check_accuracy(list_test_files, model1, model2, prior_1):
+    bins, num_lengths_per_bin = group_files_by_length(list_test_files)
+    print(num_lengths_per_bin)
+    accuracy = []
+    for b in bins:
+        numerical_acc, _ = binary_classifier_accuracy(model1, model2, b, prior_1)
+        accuracy.append(numerical_acc)
+        print(b)
+        print(accuracy)
 
 def main():
     args = parse_args()
@@ -163,9 +172,8 @@ def main():
             sys.exit(1)
     
     if (args.accuracy):
-        bins, num_lengths_per_bin = group_files_by_length(args.test_files)
-        print(bins, num_lengths_per_bin)
-        sys.exit(1)
+        check_accuracy(args.test_files, args.model1, args.model2, args.prior_1)
+        sys.exit(0)
 
     log.info("Testing...")
     lm_1 = LanguageModel.load(args.model_1)

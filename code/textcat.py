@@ -105,12 +105,16 @@ def binary_classifier_accuracy(model1: LanguageModel, model2: LanguageModel, dev
 # The base file names in the subtree of `file_directory` should have the form "xx.length.fileID".
 # We want to extract the integer value in place of 'length' in this file name format.
 # TODO: Write the "driver" code that actually runs this function as part of a larger routine.
-def group_files_by_length(file_directory: Path, num_lengths_per_bin: int = 0, num_bins: int = 10):
+def group_files_by_length(file_directory: list, num_lengths_per_bin: int = 0, num_bins: int = 10):
     # Retrieve all files in the directory subtree
     file_list = []
     length_list = []
     max_file_length = 0
-    for f in file_directory.rglob("*"):
+
+    sorted(file_directory, key=lambda file: int(str(file).split['.'][-2]))
+    print(file_directory[:10])
+
+    for f in file_directory:
         # Just a safety check - we want to skip paths that describe directories
         if f.is_dir():
             continue

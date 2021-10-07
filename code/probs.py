@@ -167,7 +167,7 @@ def sample(model_path: Path, num_sentences = 10, max_depth: int = 10) -> list:
                     max_word = v
             if max_word == 'EOS':
                 break
-            sentence.append(' ' + x)
+            sentence = sentence + ' ' + x
             x, y = y, max_word
         if max_word != 'EOS':
             continue

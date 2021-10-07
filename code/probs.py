@@ -152,7 +152,7 @@ def sample(model_path: Path, num_sentences = 10, max_depth: int = 10) -> list:
     """sample given number of list with optionally a max depth by a chosen model."""
     print('start sampling')
     sentences = []
-    model = LanguageModel.load(model)
+    model = LanguageModel.load(model_path)
     vocab = model.vocab
     while len(sentences) < num_sentences:
         sentence = ""

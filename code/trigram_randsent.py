@@ -23,7 +23,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "num_sentences",
-        type=Path,
+        type=int,
         help="number of sentences to be generated",
     )
 

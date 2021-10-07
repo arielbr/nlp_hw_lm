@@ -91,7 +91,6 @@ def read_tokens(file: Path, vocab: Optional[Vocab] = None) -> Iterable[Wordtype]
                     yield OOV  # replace this out-of-vocabulary word with OOV
             yield EOS  # Every line in the file implicitly ends with EOS.
 
-
 def num_tokens(file: Path) -> int:
     """Give the number of tokens in file, including EOS."""
     return sum(1 for _ in read_tokens(file))
@@ -106,7 +105,6 @@ def num_tokens_general(file: Path) -> int:
     # Use `file.iterdir()` in place of `file.rglob("*")` to avoid subdirectory recursion
     return sum([num_tokens(stuff) for stuff in file.rglob("*") if not(stuff.is_dir())])
 
-
 def read_trigrams(file: Path, vocab: Vocab) -> Iterable[Trigram]:
     """Iterator over the trigrams in file.  Each triple (x,y,z) is a token z
     (possibly EOS) with a left context (x,y)."""
@@ -117,7 +115,6 @@ def read_trigrams(file: Path, vocab: Vocab) -> Iterable[Trigram]:
             x, y = BOS, BOS  # reset for the next sequence in the file (if any)
         else:
             x, y = y, z  # shift over by one position.
-
 
 def draw_trigrams_forever(file: Path, 
                           vocab: Vocab, 
@@ -151,6 +148,19 @@ def read_trigrams_general(file: Path, vocab: Vocab) -> Iterable[Trigram]:
     # Use `file.iterdir()` in place of `file.rglob("*")` to avoid subdirectory recursion
     return chain(*[read_trigrams(stuff, vocab) for stuff in file.rglob("*") if not(stuff.is_dir())])
 
+def sample(model_path: Path, num_sentences = 10, max_depth: int = 10) -> list:
+    """sample given number of list with optionally a max depth by a chosen model."""
+    print('start sampling')
+    sentences = []
+    # model = LanguageModel.load(model)
+    # while len(sentences) < num_sentences:
+    #     sentence = None
+    #     for j in range(max_depth):
+    #         xxx
+    #     if sentence.split(' ')[-1] != 'EOS':
+    #         continue
+    #     sentences.append(sentence)  
+    return sentences
 
 ##### READ IN A VOCABULARY (e.g., from a file created by build_vocab.py)
 
@@ -384,12 +394,9 @@ class BackoffAddLambdaLanguageModel(AddLambdaLanguageModel):
         super().__init__(vocab, lambda_)
 
     def prob(self, x: Wordtype, y: Wordtype, z: Wordtype) -> float:
-        # TODO: Reimplement me so that I do backoff
-        #return super().prob(x, y, z)
         # Don't forget the difference between the Wordtype z and the
         # 1-element tuple (z,). If you're looking up counts,
         # these will have very different counts!
-        # Kyle: This is my first guess at the backoff formula. High chance this needs to be fixed.
         p_z = (self.event_count[(z,)] + self.lambda_)/(self.context_count[()] + self.lambda_*self.vocab_size)
         p_zy = (self.event_count[(y, z)] + self.lambda_*self.vocab_size*p_z)/(self.context_count[(y,)] + self.lambda_*self.vocab_size)
         return (self.event_count[(x, y, z)] + self.lambda_*self.vocab_size*p_zy)/(self.context_count[(x, y)] + self.lambda_*self.vocab_size)

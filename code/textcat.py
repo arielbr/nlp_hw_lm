@@ -159,7 +159,8 @@ def main():
             sys.exit(1)
     
     if (args.accuracy):
-        print("accuracy")
+        bins, num_lengths_per_bin = group_files_by_length(args.test_files)
+        print(bins, num_lengths_per_bin)
         sys.exit(1)
 
     log.info("Testing...")

@@ -46,6 +46,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "-a",
         "--accuracy",
+        type=bool,
         default=False,
         help="Check accuracy of .txt length intervals of 50.",
     )

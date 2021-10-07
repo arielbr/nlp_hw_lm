@@ -152,14 +152,26 @@ def sample(model_path: Path, num_sentences = 10, max_depth: int = 10) -> list:
     """sample given number of list with optionally a max depth by a chosen model."""
     print('start sampling')
     sentences = []
-    # model = LanguageModel.load(model)
-    # while len(sentences) < num_sentences:
-    #     sentence = None
-    #     for j in range(max_depth):
-    #         xxx
-    #     if sentence.split(' ')[-1] != 'EOS':
-    #         continue
-    #     sentences.append(sentence)  
+    model = LanguageModel.load(model)
+    vocab = model.vocab
+    while len(sentences) < num_sentences:
+        sentence = ""
+        x, y = 'BOS', 'BOS'
+        for j in range(max_depth):
+            max_word = None
+            max_prob = 0
+            for v in vocab:
+                next_prob = model.prob(x, y, z)
+                if (next_prob > max_prob):
+                    max_prob = next_prob
+                    max_word = v
+            if v == 'EOS':
+                break
+            sentence.append(' ' + x)
+            x, y = y, v
+        if v != 'EOS':
+            continue
+        sentences.append(sentence[1:] + y + v) # get rid of the beginning space 
     return sentences
 
 ##### READ IN A VOCABULARY (e.g., from a file created by build_vocab.py)

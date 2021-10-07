@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Computes which of two language models was more likely to have generated each given piece of text.
+Generate random sentences from user-specified models, number of sentences and max length.
 """
 import argparse
 import logging
@@ -39,7 +39,6 @@ def parse_args() -> argparse.Namespace:
 def main():
     args = parse_args()
     if (args.max_length):
-        print('max_length is', args.max_length)
         sample(args.model, args.num_sentences, args.max_length)
     else:
         sample(args.model, args.num_sentences)

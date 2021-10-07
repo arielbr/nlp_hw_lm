@@ -149,7 +149,7 @@ def read_trigrams_general(file: Path, vocab: Vocab) -> Iterable[Trigram]:
     # Use `file.iterdir()` in place of `file.rglob("*")` to avoid subdirectory recursion
     return chain(*[read_trigrams(stuff, vocab) for stuff in file.rglob("*") if not(stuff.is_dir())])
 
-def sample(model_path: Path, num_sentences = 10, max_depth: int = 10) -> list:
+def sample(model_path: Path, num_sentences = 10, max_depth: int = 100) -> list:
     """sample given number of list with optionally a max depth by a chosen model."""
     sentences = []
     model = LanguageModel.load(model_path)

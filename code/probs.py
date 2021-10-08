@@ -632,6 +632,8 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
             raise ValueError("You must include a positive validation batch size")
         self.train_batch_size = train_batch_size
         self.val_batch_size = val_batch_size
+        # We will use this dictionary to persist training routine parameters into the pickled model file that gets saved.
+        self.last_train_routine_params = {}
 
     # Cross-Entropy Loss of a batch with L2 Regularization
     # Correction made on 10/06/21: Regularization term should be divided by N, the number of samples in the underlying dataset.
@@ -706,9 +708,15 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
                 impatience_counter += 1
                 if (impatience_counter >= patience):
                     log.info(f"Validation loss has not decreased in {patience} epochs.")
-                    log.info(f"Stopping early and restoring model weights from epoch {epoch-impatience_counter}.")
+                    log.info(f"Stopping early and restoring model weights from epoch {epoch+1-impatience_counter}.")
                     self.X = nn.Parameter(bestX, requires_grad=True)
                     self.Y = nn.Parameter(bestY, requires_grad=True)
                     break
-
+        # If training was successful, then save the training hyperparameters so they can be recovered later.
+        self.last_train_routine_params["train_batch_size"] = self.train_batch_size
+        self.last_train_routine_params["val_batch_size"] = self.val_batch_size
+        self.last_train_routine_params["max_epochs"] = max_epochs
+        self.last_train_routine_params["initial_learning_rate"] = learning_rate
+        self.last_train_routine_params["L2_weight"] = self.l2
+        self.last_train_routine_params["patience"] = patience
         log.info("Done optimizing.")

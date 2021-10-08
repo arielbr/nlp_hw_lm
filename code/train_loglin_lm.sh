@@ -16,7 +16,7 @@ VOCAB_DIR=.
 #LEXICON_ALIAS="wgs50"
 
 # Settings for the english-spanish framework
-ENGLISH_OR_SPANISH="sp"
+ENGLISH_OR_SPANISH="en"
 TRAIN_SIZE="1K"
 VOCAB_FILE=${VOCAB_DIR}/vocab-ensp1K.txt
 TRAIN_FILE=${ROOT_DIR}/data/english_spanish/train/${ENGLISH_OR_SPANISH}.${TRAIN_SIZE}

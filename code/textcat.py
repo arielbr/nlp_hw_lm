@@ -101,21 +101,25 @@ def binary_classifier_accuracy(model1: LanguageModel, model2: LanguageModel, dev
     string_form = str(correct) + "/" + str(total)
     return numerical_acc, string_form
 
-def group_files_by_fixed_length_bins(file_directory: list, num_items_per_bin: int = 10):
-    file_directory = sorted(file_directory, key=lambda file: int(str(file).split['.'][-2]))
-    num_bins = (len(file_directory) - 1) // num_items_per_bin  + 1 
-    last_bin_length = len(file_directory) % num_items_per_bin
+def group_files_by_fixed_length_bins(file_directory: List[Path], num_items_per_bin: int = 10):
+    file_directory = sorted(file_directory, key=lambda file: int(file.parts[-1].split(".")[1]))
+    # Kyle: changed the line above from int(str(file).split(".")[-2]),
+    # so that it can work on the language ID files, which lack the ".txt" extension
+    num_bins = (len(file_directory) - 1) // num_items_per_bin + 1 
+    #last_bin_length = ((len(file_directory) - 1) % num_items_per_bin) + 1
     bins = []
-    for i in range(num_bins):
-        temp = file_directory[range(i * num_items_per_bin, (i+1) * num_items_per_bin)]
+    for i in range(num_bins - 1):
+        temp = file_directory[i*num_items_per_bin : (i+1)*num_items_per_bin]
         bins.append(temp)
+    # The last bin needs special treatment since it may have fewer elements.
+    bins.append(file_directory[(num_bins - 1)*num_items_per_bin:])
     return bins
 
 
-# The base file names in the subtree of `file_directory` should have the form "xx.length.fileID".
+# The base file names in the subtree of `file_directory` should have the form "xx.length.fileID(.txt)".
 # We want to extract the integer value in place of 'length' in this file name format.
 # TODO: Write the "driver" code that actually runs this function as part of a larger routine.
-def group_files_by_length(file_directory: list, num_lengths_per_bin: int = 0, num_bins: int = 10):
+def group_files_by_length(file_directory: List[Path], num_lengths_per_bin: int = 0, num_bins: int = 10):
     # Retrieve all files in the directory subtree
     file_list = []
     length_list = []
@@ -127,7 +131,9 @@ def group_files_by_length(file_directory: list, num_lengths_per_bin: int = 0, nu
             continue
         # Extract the length of the file using its properly formatted name
         try:
-            new_length = int(f.name.split(".")[-2])
+            new_length = int(f.parts[-1].split(".")[1])
+            # Kyle: changed the line above from int(f.name.split(".")[-2]),
+            # so that it can work on the language ID files, which lack the ".txt" extension
             if (new_length > max_file_length):
                 max_file_length = new_length
             length_list.append(new_length)
@@ -137,7 +143,7 @@ def group_files_by_length(file_directory: list, num_lengths_per_bin: int = 0, nu
         file_list.append(f)
     # Just a safety check for handling directories with no valid files
     if (max_file_length <= 0):
-        return []
+        return [], 0
     # Calculate the "histogramming" parameters
     if (num_lengths_per_bin <= 0):
         if (num_bins <= 0):

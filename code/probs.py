@@ -640,19 +640,21 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
         return self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y)))/N - \
                 sum([self.log_prob(x, y, z) for (x, y, z) in zip(*trigram_batch)])/len(trigram_batch[0])
 
-    def train(self, train_file: Path, val_file: Path, max_epochs: int):    # type: ignore
+    def train(self, train_file: Path, val_file: Path, max_epochs: int, patience: int = 10, learning_rate: float = 0.001):    # type: ignore
         N = num_tokens_general(train_file)
         M = num_tokens_general(val_file)
 
-        # Optimization hyperparameters.
-        gamma0 = 0.0005  # initial learning rate
-        optimizer = ConvergentSGD(self.parameters(), gamma0, 2*self.l2/N)
+        # Sanity checks
+        learning_rate = max(0.000001, learning_rate)
+        max_epochs = max(1, max_epochs)
+        patience = max(1, patience)
+        # Optimization hyperparameters
+        optimizer = ConvergentSGD(self.parameters(), learning_rate, 2*self.l2/N)
         # Initialize the parameter matrices to be full of zeros.
         nn.init.xavier_uniform_(self.X)   # type: ignore
         nn.init.xavier_uniform_(self.Y)   # type: ignore
-        max_epochs = max(1, max_epochs) # just a sanity check to ensure this value is positive
-
-        # Mini-batch dataloaders.
+        
+        # Mini-batch dataloaders
         train_dataloader = DataLoader(list(read_trigrams_general(train_file, self.vocab)), \
                                       batch_size=min(N, self.train_batch_size), \
                                       sampler=SubsetRandomSampler(range(N)))
@@ -663,6 +665,12 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
         
         tqdm_threshold = 60
         epoch_duration = 69 # any bogus constant greater than `tqdm_threshold` works here
+        best_val_loss = 420.0 # any bogus constant works here
+        impatience_counter = 0 # this *must* be initialized at zero
+
+        # Save copies of self.X and self.Y detached from the computational graph.
+        bestX = torch.clone(self.X).detach()
+        bestY = torch.clone(self.Y).detach()
         
         for epoch in range(max_epochs):
             log.info(f"Running epoch {epoch+1}/{max_epochs} ...")
@@ -686,8 +694,21 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
                     #val_batch_count += 1
             #log.info(f"Validation loss: {val_loss/val_batch_count:g}")
             log.info(f"Validation loss: {val_loss/M:g}")
-            ## TODO: Implement early stopping ?
             epoch_duration = time.time() - epoch_start
             log.info(f"Epoch {epoch+1} finished in {epoch_duration:g} seconds.")
+            # Early stopping criterion: validation loss does not improve from its current best value for too many epochs
+            if (epoch == 0 or val_loss < best_val_loss):
+                impatience_counter = 0
+                bestX = torch.clone(self.X).detach()
+                bestY = torch.clone(self.Y).detach()
+                best_val_loss = val_loss
+            else:
+                impatience_counter += 1
+                if (impatience_counter >= patience):
+                    log.info(f"Validation loss has not decreased in {patience} epochs.")
+                    log.info(f"Stopping early and restoring model weights from epoch {epoch-impatience_counter}.")
+                    self.X = nn.Parameter(bestX, requires_grad=True)
+                    self.Y = nn.Parameter(bestY, requires_grad=True)
+                    break
 
         log.info("Done optimizing.")

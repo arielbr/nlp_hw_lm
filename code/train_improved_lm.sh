@@ -9,12 +9,12 @@ VOCAB_DIR=.
 # Feel free to modify these
 
 # Settings for the gen-spam framework
-GEN_OR_SPAM="gen"
+GEN_OR_SPAM="spam"
 VOCAB_FILE=${VOCAB_DIR}/vocab-genspam.txt
 TRAIN_FILE=${ROOT_DIR}/data/gen_spam/train/${GEN_OR_SPAM}
 VAL_FILE=${ROOT_DIR}/data/gen_spam/dev/${GEN_OR_SPAM}
-LEXICON=${ROOT_DIR}/lexicons/words-10.txt
-LEXICON_ALIAS="w10"
+LEXICON=${ROOT_DIR}/lexicons/words-50.txt
+LEXICON_ALIAS="w50"
 
 # Settings for the english-spanish framework
 #ENGLISH_OR_SPANISH="en"
@@ -31,7 +31,7 @@ TRAIN_BATCH_SIZE=64
 VAL_BATCH_SIZE=64
 MAX_EPOCHS=69
 PATIENCE=10
-LEARNING_RATE=0.001
+LEARNING_RATE=0.0005
 
 MODEL_BASENAME=$GEN_OR_SPAM
 MODEL_OUTPUT=$MODEL_BASENAME"_"$LEXICON_ALIAS"_"$SMOOTHER_ALIAS".model"

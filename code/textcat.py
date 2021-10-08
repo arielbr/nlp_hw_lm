@@ -50,6 +50,24 @@ def parse_args() -> argparse.Namespace:
         default=False,
         help="Check accuracy of .txt length intervals of 50.",
     )
+    parser.add_argument(
+        "--eval",
+        type=bool,
+        default=False,
+        help="Evaluate on test data",
+    )
+    parser.add_argument(
+        "--model_1_test_dir",
+        type=Path,
+        default=None,
+        help="Directory containing test files that \"belong to\" model 1",
+    )
+    parser.add_argument(
+        "--model_2_test_dir",
+        type=Path,
+        default=None,
+        help="Directory containing test files that \"belong to\" model 2",
+    )
 
     verbosity = parser.add_mutually_exclusive_group()
     verbosity.add_argument(
@@ -169,6 +187,20 @@ def check_accuracy(list_test_files, model1, model2, prior_1):
         print(b)
         print(accuracy)
 
+# A new function to evaluate a pair of language models on a set of labeled test data
+def evaluate_classifier(model1: LanguageModel, model2: LanguageModel, testdir1: Path, testdir2: Path, prior_1: float):
+    test_list_1 = [stuff for stuff in testdir1.rglob("*") if not(stuff.is_dir())]
+    belongs_to_1_1 = [True]*len(test_list_1)
+    test_list_2 = [stuff for stuff in testdir2.rglob("*") if not(stuff.is_dir())]
+    belongs_to_1_2 = [False]*len(test_list_2)
+    test_1_acc, test_1_str = binary_classifier_accuracy(model1, model2, test_list_1, belongs_to_1_1, prior_1)
+    print("Model 1 data recall: " + str(test_1_acc) + " (" + test_1_str + ")")
+    test_2_acc, test_2_str = binary_classifier_accuracy(model1, model2, test_list_2, belongs_to_1_2, prior_1)
+    print("Model 2 data recall: " + str(test_2_acc) + " (" + test_2_str + ")")
+    total_acc, total_str = binary_classifier_accuracy(model1, model2, test_list_1 + test_list_2, belongs_to_1_1 + belongs_to_1_2, prior_1)
+    print("Total accuracy: " + str(total_acc) + " (" + total_str + ")")
+
+
 def main():
     args = parse_args()
     logging.basicConfig(level=args.verbose)
@@ -192,6 +224,10 @@ def main():
     lm_2 = LanguageModel.load(args.model_2)
     corpus_name_1 = str(args.model_1).split(".")[0]
     corpus_name_2 = str(args.model_2).split(".")[0]
+
+    if args.eval:
+        evaluate_classifier(lm_1, lm_2, args.model_1_test_dir, args.model_2_test_dir, args.prior_1)
+        sys.exit(0)
 
     # Test if the language models have different vocabularies
     if (len(lm_1.vocab) != len(lm_2.vocab)):

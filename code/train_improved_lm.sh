@@ -26,15 +26,15 @@ LEXICON_ALIAS="w10"
 
 # General settings
 # TODO: Add learning rate to the list of command line arguments, and then add it to this config script!
-L2REG=1.0
-TRAIN_BATCH_SIZE=128 #previously 64
-VAL_BATCH_SIZE=128 #previously 64
+L2REG=2.0
+TRAIN_BATCH_SIZE=64 #originally 64
+VAL_BATCH_SIZE=64 #originally 64
 MAX_EPOCHS=69
 PATIENCE=10
 LEARNING_RATE=0.0005
 
-MODEL_BASENAME=$GEN_OR_SPAM$TRAIN_BATCH_SIZE # previously $GEN_OR_SPAM
-MODEL_OUTPUT=$MODEL_BASENAME"_"$LEXICON_ALIAS"_"$SMOOTHER_ALIAS".model"
+MODEL_BASENAME=$GEN_OR_SPAM # originally $GEN_OR_SPAM
+MODEL_OUTPUT=$MODEL_BASENAME"_"$LEXICON_ALIAS"_"$SMOOTHER_ALIAS"_2.model"
 
 ./train_lm.py $VOCAB_FILE $SMOOTHER $TRAIN_FILE --output $MODEL_OUTPUT --lexicon $LEXICON --max_epochs $MAX_EPOCHS \
 	--l2_regularization $L2REG --train_batch_size $TRAIN_BATCH_SIZE --val_batch_size $VAL_BATCH_SIZE --val_file $VAL_FILE \

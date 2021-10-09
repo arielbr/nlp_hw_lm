@@ -266,8 +266,8 @@ def main():
     log.info("Testing...")
     lm_1 = LanguageModel.load(args.model_1)
     lm_2 = LanguageModel.load(args.model_2)
-    corpus_name_1 = str(args.model_1).split(".")[0]
-    corpus_name_2 = str(args.model_2).split(".")[0]
+    corpus_name_1 = str(args.model_1) # changed from `str(args.model_1).split(".")[0]` as of a recent change in HW instructions
+    corpus_name_2 = str(args.model_2) # changed from `str(args.model_2).split(".")[0]` as of a recent change in HW instructions
 
     if args.eval:
         evaluate_classifier(lm_1, lm_2, args.model_1_test_dir, args.model_2_test_dir, prior_1=args.prior_1)

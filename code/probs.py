@@ -485,6 +485,16 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         #raise NotImplementedError("Implement me!")
         return stuff[self._word_index(z)] - torch.logsumexp(stuff, 0) #torch.sum(stuff.exp()).log()
 
+    # Faster version of `log_prob` for when we have precomputed the token indices
+    def fast_log_prob(self, x_index: int, y_index: int, z_index: int) -> torch.Tensor:
+        stuff = torch.mm(self.embeddings, torch.mm(self.X, torch.unsqueeze(self.embeddings[x_index,:], 1)) + \
+                torch.mm(self.Y, torch.unsqueeze(self.embeddings[y_index,:], 1)))
+        return stuff[z_index] - torch.logsumexp(stuff, 0)
+
+    # This function, which directly loads the index triple for each trigram, is used in this class as well as its subclass.
+    def read_trigram_indices(self, p: Path):
+        return [(self._word_index(x), self._word_index(y), self._word_index(z)) for (x, y, z) in read_trigrams_general(p, self.vocab)]
+
     def train(self, file: Path):    # type: ignore
         
         ### Technically this method shouldn't be called `train`,
@@ -516,10 +526,13 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         # To get the training examples, you can use the `read_trigrams` function
         # we provided, which will iterate over all N trigrams in the training
         # corpus.
-        trigrams_list = list(read_trigrams(file, self.vocab))
+        #trigrams_list = list(read_trigrams(file, self.vocab))
+        indices_list = self.read_trigram_indices(file)
         total_epochs = 10
         verbose = True
         single_example_loss = True
+        tqdm_threshold = 60
+        epoch_duration = 69
         #
         # For each successive training example i, compute the stochastic
         # objective F_i(θ).  This is called the "forward" computation. Don't
@@ -528,16 +541,20 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
             if not(single_example_loss):
                 optimizer.zero_grad()
                 avg_loss = (self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y))) - \
-                        sum([self.log_prob(x, y, z) for (x, y, z) in trigrams_list]))/N
+                        sum([self.fast_log_prob(ix, iy, iz) for (ix, iy, iz) in indices_list]))/N
+                #avg_loss = (self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y))) - \
+                #        sum([self.log_prob(x, y, z) for (x, y, z) in trigrams_list]))/N
                 avg_loss.backward()
                 optimizer.step()
                 if verbose:
                     fval = -avg_loss.item()
                     print(f"Epoch {epoch+1}: F = {fval:g}")
             else:
-                for (x, y, z) in trigrams_list: #tqdm.tqdm(trigrams_list, total=N):
+                epoch_start_time = time.time()
+                for (ix, iy, iz) in (indices_list if (epoch_duration < tqdm_threshold) else tqdm.tqdm(indices_list, total=N)):
                     optimizer.zero_grad()
-                    loss = self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y)))/N - self.log_prob(x, y, z)
+                    loss = self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y)))/N - self.fast_log_prob(ix, iy, iz)
+                    #loss = self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y)))/N - self.log_prob(x, y, z)
                     #
                     # To get the gradient of this objective (∇F_i(θ)), call the `backward`
                     # method on the number you computed at the previous step.  This invokes
@@ -555,9 +572,12 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
                     with torch.no_grad():
                         #reg_term = self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y))).item() / N
                         avg_loss = (self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y))) - \
-                                sum([self.log_prob(x, y, z) for (x, y, z) in trigrams_list]))/N
+                                sum([self.fast_log_prob(ix, iy, iz) for (ix, iy, iz) in indices_list]))/N
+                        #avg_loss = (self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y))) - \
+                        #        sum([self.log_prob(x, y, z) for (x, y, z) in trigrams_list]))/N
                         fval = -avg_loss.item()
                         print(f"Epoch {epoch+1}: F = {fval:g}") #, L2 penalty = {reg_term:g}")
+                epoch_duration = time.time() - epoch_start_time
         #
         # For the EmbeddingLogLinearLanguageModel, you should run SGD
         # optimization for 10 epochs and then stop.  You might want to print
@@ -642,6 +662,11 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
         return self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y)))/N - \
                 sum([self.log_prob(x, y, z) for (x, y, z) in zip(*trigram_batch)])/len(trigram_batch[0])
 
+    # Version of `xent_loss` that uses word indices in place of the words themselves, so that we can call `fast_log_prob`
+    def fast_xent_loss(self, trigram_indices_batch, N):
+        return self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y)))/N - \
+                sum([self.fast_log_prob(ix, iy, iz) for (ix, iy, iz) in zip(*trigram_indices_batch)])/len(trigram_indices_batch[0])
+
     def train(self, train_file: Path, val_file: Path, max_epochs: int, patience: int = 10, learning_rate: float = 0.001):    # type: ignore
         N = num_tokens_general(train_file)
         M = num_tokens_general(val_file)
@@ -657,10 +682,10 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
         nn.init.xavier_uniform_(self.Y)   # type: ignore
         
         # Mini-batch dataloaders
-        train_dataloader = DataLoader(list(read_trigrams_general(train_file, self.vocab)), \
+        train_dataloader = DataLoader(self.read_trigram_indices(train_file), \
                                       batch_size=min(N, self.train_batch_size), \
                                       sampler=SubsetRandomSampler(range(N)))
-        val_dataloader = DataLoader(list(read_trigrams_general(val_file, self.vocab)), \
+        val_dataloader = DataLoader(self.read_trigram_indices(val_file), \
                                     batch_size=min(M, self.val_batch_size), \
                                     sampler=SubsetRandomSampler(range(M)))
         log.info(f"Start optimizing on {N} training tokens...")
@@ -681,7 +706,7 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
             #train_batch_count = 0
             for batch in (tqdm.tqdm(train_dataloader, total=len(train_dataloader)) if (epoch_duration > tqdm_threshold) else train_dataloader):
                 optimizer.zero_grad()
-                loss = self.xent_loss(batch, N)
+                loss = self.fast_xent_loss(batch, N)
                 train_loss += len(batch[0])*loss.item()
                 #train_batch_count += 1
                 loss.backward()
@@ -692,7 +717,7 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
             #val_batch_count = 0
             with torch.no_grad():
                 for val_batch in (tqdm.tqdm(val_dataloader, total=len(val_dataloader)) if (epoch_duration > tqdm_threshold) else val_dataloader):
-                    val_loss += len(val_batch[0])*self.xent_loss(val_batch, M).item()
+                    val_loss += len(val_batch[0])*self.fast_xent_loss(val_batch, M).item()
                     #val_batch_count += 1
             #log.info(f"Validation loss: {val_loss/val_batch_count:g}")
             log.info(f"Validation loss: {val_loss/M:g}")

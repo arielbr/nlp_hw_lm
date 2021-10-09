@@ -191,6 +191,7 @@ class LanguageModel:
 
         self.vocab = vocab
         self.progress = 0   # To print progress.
+        self.hyperparams_dict = {}
 
         self.event_count:   Counter[Ngram] = Counter()  # numerator c(...) function.
         self.context_count: Counter[Ngram] = Counter()  # denominator c(...) function.
@@ -206,6 +207,14 @@ class LanguageModel:
     def vocab_size(self) -> int:
         assert self.vocab is not None
         return len(self.vocab)
+
+    #@property
+    #def hyperparams(self):
+    #    return self._hyperparams
+
+    #@hyperparams.setter
+    def hyperparams(self, key, value):
+        self.hyperparams_dict[key] = value
 
     # We need to collect two kinds of n-gram counts.
     # To compute p(z | xy) for a trigram xyz, we need c(xy) for the 
@@ -263,6 +272,12 @@ class LanguageModel:
             f"{class_name}.prob is not implemented yet (you should override LanguageModel.prob)"
         )
 
+    # A default implementation of a new log-prob function; our log-linear models
+    # later on will prefer to work in log-space and will thus override this method
+    # with a more numerically accurate alternative.
+    def log_prob_float(self, x: Wordtype, y: Wordtype, z: Wordtype) -> float:
+        return math.log(self.prob(x, y, z))
+
     @classmethod
     def load(cls, source: Path) -> "LanguageModel":
         import pickle  # for loading/saving Python objects
@@ -317,6 +332,7 @@ class AddLambdaLanguageModel(LanguageModel):
         if lambda_ < 0:
             raise ValueError("negative lambda argument of {lambda_}")
         self.lambda_ = lambda_
+        self.hyperparams("lambda", self.lambda_)
 
     def prob(self, x: Wordtype, y: Wordtype, z: Wordtype) -> float:
         assert self.event_count[x, y, z] <= self.context_count[x, y]
@@ -391,6 +407,7 @@ class AddLambdaLanguageModel(LanguageModel):
         # all we need to do is change its existing lambda value.
         if (isinstance(lm, AddLambdaLanguageModel)):
             lm.lambda_ = lambda_
+            lm.hyperparams("lambda", lambda_)
             return lm
         smoothed_lm = AddLambdaLanguageModel(lm.vocab, lambda_)
         smoothed_lm.event_count = lm.event_count
@@ -420,6 +437,7 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
             log.error(f"l2 regularization strength value was {l2}")
             raise ValueError("You must include a non-negative regularization value")
         self.l2: float = l2
+        self.hyperparams("L2_weight", self.l2)
 
         # TODO: READ THE LEXICON OF WORD VECTORS AND STORE IT IN A USEFUL FORMAT.
         # Kyle: I am currently assuming that the lexicon file is formatted the same way it was in Homework 2.
@@ -492,6 +510,10 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         #raise NotImplementedError("Implement me!")
         return stuff[self._word_index(z)] - torch.logsumexp(stuff, 0) #torch.sum(stuff.exp()).log()
 
+    # Same as log_prob but without wrapping the numerical answer in a torch Tensor
+    def log_prob_float(self, x: Wordtype, y: Wordtype, z: Wordtype) -> float:
+        return self.log_prob(x, y, z).item()
+
     # Faster version of `log_prob` for when we have precomputed the token indices
     def fast_log_prob(self, x_index: int, y_index: int, z_index: int):
         stuff = torch.mm(self.embeddings, torch.mm(self.X, torch.unsqueeze(self.embeddings[x_index,:], 1)) + \
@@ -504,7 +526,7 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
     def read_trigram_indices(self, p: Path):
         return [(self._word_index(x), self._word_index(y), self._word_index(z)) for (x, y, z) in read_trigrams_general(p, self.vocab)]
 
-    def train(self, file: Path):    # type: ignore
+    def train(self, file: Path, max_epochs: int = 10, learning_rate: float = 0.001):    # type: ignore
         
         ### Technically this method shouldn't be called `train`,
         ### because this means it overrides not only `LanguageModel.train` (as desired)
@@ -513,7 +535,8 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         ### The `type: ignore` comment above tells the type checker to ignore this inconsistency.
         
         # Optimization hyperparameters.
-        gamma0 = 0.01  # initial learning rate - recommended to use 0.1 for gen-span task and 0.01 for english-spanish task
+        gamma0 = learning_rate  # initial learning rate - recommended to use 0.1 for gen-spam task and 0.01 for english-spanish task
+        self.hyperparams("initial_learning_rate", gamma0)
 
         # This is why we needed the nn.Parameter above.
         # The optimizer needs to know the list of parameters
@@ -537,7 +560,8 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         # corpus.
         #trigrams_list = list(read_trigrams(file, self.vocab))
         indices_list = self.read_trigram_indices(file)
-        total_epochs = 10
+        total_epochs = max_epochs # previously this was always set to 10
+        self.hyperparams("max_epochs", total_epochs)
         verbose = True
         single_example_loss = True
         tqdm_threshold = 60
@@ -602,7 +626,7 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         # instead of iterating over
         #     read_trigrams(file)
         #####################
-
+        self.hyperparams("L2_weight", self.l2)
         print(f"Finished training on {N} tokens")
         #log.info("done optimizing.")
 
@@ -667,7 +691,7 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
         self.train_batch_size = train_batch_size
         self.val_batch_size = val_batch_size
         # We will use this dictionary to persist training routine parameters into the pickled model file that gets saved.
-        self.last_train_routine_params = {}
+        #self.hyperparams = {}
 
     # Cross-Entropy Loss of a batch with L2 Regularization
     # Correction made on 10/06/21: Regularization term should be divided by N, the number of samples in the underlying dataset.
@@ -681,7 +705,7 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
         return self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y)))/N - \
                 sum([self.fast_log_prob(ix, iy, iz) for (ix, iy, iz) in zip(*trigram_indices_batch)])/len(trigram_indices_batch[0])
 
-    def train(self, train_file: Path, val_file: Path, max_epochs: int, patience: int = 10, learning_rate: float = 0.001):    # type: ignore
+    def train(self, train_file: Path, val_file: Path, max_epochs: int, patience: int = 10, learning_rate: float = 0.001, opt: str = "ConvergentSGD"):    # type: ignore
         N = num_tokens_general(train_file)
         M = num_tokens_general(val_file)
 
@@ -690,7 +714,16 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
         max_epochs = max(1, max_epochs)
         patience = max(1, patience)
         # Optimization hyperparameters
-        optimizer = ConvergentSGD(self.parameters(), learning_rate, 2*self.l2/N)
+        optimizer = None
+        if (opt == "SGD"):
+            optimizer = optim.SGD(self.parameters(), lr=learning_rate)
+            self.hyperparams("optimizer", "SGD")
+        elif (opt == "Adam"):
+            optimizer = optim.Adam(self.parameters(), lr=learning_rate)
+            self.hyperparams("optimizer", "Adam")
+        else:
+            optimizer = ConvergentSGD(self.parameters(), learning_rate, 2*self.l2/N)
+            self.hyperparams("optimizer", "ConvergentSGD")
         # Initialize the parameter matrices to be full of zeros.
         nn.init.xavier_uniform_(self.X)   # type: ignore
         nn.init.xavier_uniform_(self.Y)   # type: ignore
@@ -752,10 +785,10 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
                     self.Y = nn.Parameter(bestY, requires_grad=True)
                     break
         # If training was successful, then save the training hyperparameters so they can be recovered later.
-        self.last_train_routine_params["train_batch_size"] = self.train_batch_size
-        self.last_train_routine_params["val_batch_size"] = self.val_batch_size
-        self.last_train_routine_params["max_epochs"] = max_epochs
-        self.last_train_routine_params["initial_learning_rate"] = learning_rate
-        self.last_train_routine_params["L2_weight"] = self.l2
-        self.last_train_routine_params["patience"] = patience
+        self.hyperparams("train_batch_size", self.train_batch_size)
+        self.hyperparams("val_batch_size", self.val_batch_size)
+        self.hyperparams("max_epochs", max_epochs)
+        self.hyperparams("initial_learning_rate", learning_rate)
+        self.hyperparams("L2_weight", self.l2)
+        self.hyperparams("patience", patience)
         log.info("Done optimizing.")

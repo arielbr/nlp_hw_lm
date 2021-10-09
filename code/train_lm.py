@@ -84,8 +84,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--max_epochs",
         type=int,
-        default=20,
-        help="Maximum number of training epochs (default 20)",
+        default=10,
+        help="Maximum number of training epochs (default 10)",
     )
     parser.add_argument(
         "--patience",
@@ -116,6 +116,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="Validation corpus (as a single file) needed for improved log-linear models (default None)",
+    )
+    parser.add_argument(
+        "--optimizer",
+        type=str,
+        default="ConvergentSGD",
+        help="Optimizer to use for improved log-linear model (default 'ConvergentSGD', other options are 'SGD' and 'Adam')",
     )
 
     # for verbosity of output
@@ -188,7 +194,10 @@ def main():
             log.error("{args.smoother} requires a validation corpus")   # would be better to check this in argparse
             sys.exit(1)
         log.info("Training...")
-        lm.train(args.train_file, args.val_file, args.max_epochs, patience=args.patience, learning_rate=args.learning_rate)
+        lm.train(args.train_file, args.val_file, args.max_epochs, patience=args.patience, learning_rate=args.learning_rate, opt=args.optimizer)
+    elif args.smoother == LOGLINEAR:
+        log.info("Training...")
+        lm.train(args.train_file, max_epochs=args.max_epochs, learning_rate=args.learning_rate)
     else:
         log.info("Training...")
         lm.train(args.train_file)

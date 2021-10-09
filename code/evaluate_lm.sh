@@ -15,7 +15,10 @@ MODEL2=$2
 PRIOR1=$3
 
 # Modify these to fit the task you want to run (gen-spam vs. english-spanish)
-MODEL1_TEST_DIR=$TEST_DIR_GEN
-MODEL2_TEST_DIR=$TEST_DIR_SPAM
+#MODEL1_TEST_DIR=$TEST_DIR_GEN
+#MODEL2_TEST_DIR=$TEST_DIR_SPAM
+MODEL1_TEST_DIR=$TEST_DIR_EN
+MODEL2_TEST_DIR=$TEST_DIR_SP
+
 
 ./textcat.py $MODEL1 $MODEL2 $PRIOR1 --eval True --model_1_test_dir $MODEL1_TEST_DIR --model_2_test_dir $MODEL2_TEST_DIR

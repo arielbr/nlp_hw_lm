@@ -92,8 +92,14 @@ def file_log_prob(file: Path, lm: LanguageModel) -> float:
     """
     log_prob = 0.0
     for (x, y, z) in read_trigrams(file, lm.vocab):
-        prob = lm.prob(x, y, z)  # p(z | xy)
-        log_prob += math.log(prob)
+        #try:
+        #    # The below computation may fail due to a numerical underflow in the computation of lm.prob(x, y, z)
+        #    # If our model has a log_prob function, then let's use it!
+        log_prob += lm.log_prob_float(x, y, z)
+        #except:
+        #    # Try the standard approach if our model lacks a log_prob function.
+        #    prob = lm.prob(x, y, z) # p(z | xy)
+        #    log_prob += math.log(prob)
     return log_prob
 
 
@@ -224,7 +230,7 @@ def check_accuracy(list_test_files, model1, model2, prior_1):
         print(accuracy)
 
 # A new function to evaluate a pair of language models on a set of labeled test data
-def evaluate_classifier(model1: LanguageModel, model2: LanguageModel, testdir1: Path, testdir2: Path, prior_1: float = 0.0):
+def evaluate_classifier(model1: LanguageModel, model2: LanguageModel, model1name: str, model2name: str, testdir1: Path, testdir2: Path, prior_1: float = 0.0):
     test_list_1 = [stuff for stuff in testdir1.rglob("*") if not(stuff.is_dir())]
     belongs_to_1_1 = [True]*len(test_list_1)
     test_list_2 = [stuff for stuff in testdir2.rglob("*") if not(stuff.is_dir())]
@@ -237,11 +243,24 @@ def evaluate_classifier(model1: LanguageModel, model2: LanguageModel, testdir1: 
     total_acc, total_str = binary_classifier_accuracies(model1, model2, test_list_1 + test_list_2, belongs_to_1_1 + belongs_to_1_2, prior_1_list, \
             log_probs_1=(t1m1lps+t2m1lps), log_probs_2=(t1m2lps+t2m2lps))
     #print("Total accuracy: " + str(total_acc) + " (" + total_str + ")")
-    print("Prior\tModel 1 data recall\tModel 2 data recall\tTotal Accuracy")
+    out = "Prior\tModel 1 data recall\tModel 2 data recall\tTotal Accuracy\n"
     for j in range(len(prior_1_list)):
-        print(str(round(prior_1_list[j], 3)) + "\t" + str(round(test_1_acc[j], 3)) + " (" + test_1_str[j] + ")\t\t" + \
+        out += str(round(prior_1_list[j], 3)) + "\t" + str(round(test_1_acc[j], 3)) + " (" + test_1_str[j] + ")\t\t" + \
                 str(round(test_2_acc[j], 3)) + " (" + test_2_str[j] + ")\t\t" + \
-                str(round(total_acc[j], 3)) + " (" + total_str[j] + ")")
+                str(round(total_acc[j], 3)) + " (" + total_str[j] + ")\n"
+    print(out)
+    out += "\nModel 1 (" + model1name + ") Parameters:\n"
+    for param_id in model1.hyperparams_dict:
+        out += str(param_id) + ": " + str(model1.hyperparams_dict[param_id]) + "\n"
+    out += "\nModel 2 (" + model2name + ") Parameters:\n"
+    for param_id in model2.hyperparams_dict:
+        out += str(param_id) + ": " + str(model2.hyperparams_dict[param_id]) + "\n"
+    out += "\n"
+    filename = "EVAL_" + model1name.split(".")[0] + "_AND_" + model2name.split(".")[0] + ".txt"
+    f = open(filename, "a")
+    f.write(out)
+    f.close()
+    print("Saved evaluation results to " + filename)
 
 
 def main():
@@ -270,7 +289,7 @@ def main():
     corpus_name_2 = str(args.model_2) # changed from `str(args.model_2).split(".")[0]` as of a recent change in HW instructions
 
     if args.eval:
-        evaluate_classifier(lm_1, lm_2, args.model_1_test_dir, args.model_2_test_dir, prior_1=args.prior_1)
+        evaluate_classifier(lm_1, lm_2, str(args.model_1), str(args.model_2), args.model_1_test_dir, args.model_2_test_dir, prior_1=args.prior_1)
         sys.exit(0)
 
     # Test if the language models have different vocabularies

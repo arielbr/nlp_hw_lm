@@ -421,9 +421,6 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
             raise ValueError("You must include a non-negative regularization value")
         self.l2: float = l2
 
-        # TODO: READ THE LEXICON OF WORD VECTORS AND STORE IT IN A USEFUL FORMAT.
-        # Kyle: I am currently assuming that the lexicon file is formatted the same way it was in Homework 2.
-        # TODO: We should check the lexicon file format for this homework assignment.
         self.dim = 99999999999  # TODO: SET THIS TO THE DIMENSIONALITY OF THE VECTORS
         with open(lexicon_file) as f:
             first_line = next(f).replace("\n", "")  # Peel off the special first line.

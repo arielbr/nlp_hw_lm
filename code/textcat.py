@@ -50,6 +50,24 @@ def parse_args() -> argparse.Namespace:
         default=False,
         help="Check accuracy of .txt length intervals of 50.",
     )
+    parser.add_argument(
+        "--eval",
+        type=bool,
+        default=False,
+        help="Evaluate on test data",
+    )
+    parser.add_argument(
+        "--model_1_test_dir",
+        type=Path,
+        default=None,
+        help="Directory containing test files that \"belong to\" model 1",
+    )
+    parser.add_argument(
+        "--model_2_test_dir",
+        type=Path,
+        default=None,
+        help="Directory containing test files that \"belong to\" model 2",
+    )
 
     verbosity = parser.add_mutually_exclusive_group()
     verbosity.add_argument(
@@ -101,21 +119,61 @@ def binary_classifier_accuracy(model1: LanguageModel, model2: LanguageModel, dev
     string_form = str(correct) + "/" + str(total)
     return numerical_acc, string_form
 
-def group_files_by_fixed_length_bins(file_directory: list, num_items_per_bin: int = 10):
-    file_directory = sorted(file_directory, key=lambda file: int(str(file).split['.'][-2]))
-    num_bins = (len(file_directory) - 1) // num_items_per_bin  + 1 
-    last_bin_length = len(file_directory) % num_items_per_bin
+# An engineered version of the above function that avoids duplicate work and speeds up model evaluation.
+# The optional arguments `log_probs_1` and `log_probs_2` should only be used when we have precomputed the log-likelihoods
+# of every file in `dev_files` with respect to `model1` and `model2`, respectively.
+def binary_classifier_accuracies(model1: LanguageModel, model2: LanguageModel, dev_files: List[Path], belongs_to_1: List[bool], prior_1_list: List[float], \
+        log_probs_1=None, log_probs_2=None, return_log_probs=False):
+    total = len(dev_files)
+    if (total != len(belongs_to_1)):
+        log.error("List of dev files and list of ground truths do not have equal length")
+        sys.exit(1)
+    if log_probs_1 is None:
+        log_probs_1 = [file_log_prob(dev_files[i], model1) for i in range(total)]
+    if log_probs_2 is None:
+        log_probs_2 = [file_log_prob(dev_files[i], model2) for i in range(total)]
+    string_accs = []
+    numerical_accs = []
+    for j in range(len(prior_1_list)):
+        prior_1 = prior_1_list[j]
+        if (prior_1 <= 0.0 or prior_1 >= 1.0):
+            log.error(f"Invalid prior probability {prior_1:g} (must be strictly between 0 and 1)")
+            sys.exit(1)
+        log_prior_1 = math.log(prior_1)
+        log_prior_2 = math.log(1 - prior_1)
+        correct = 0
+        for i in range(total):
+            log_odds_1 = log_probs_1[i] + log_prior_1
+            log_odds_2 = log_probs_2[i] + log_prior_2
+            if ((log_odds_1 >= log_odds_2) == belongs_to_1[i]):
+                correct += 1
+        numerical_accs.append(correct / total)
+        string_accs.append(str(correct) + "/" + str(total))
+    if return_log_probs:
+        return numerical_accs, string_accs, log_probs_1, log_probs_2
+    return numerical_accs, string_accs
+
+
+
+def group_files_by_fixed_length_bins(file_directory: List[Path], num_items_per_bin: int = 10):
+    file_directory = sorted(file_directory, key=lambda file: int(file.parts[-1].split(".")[1]))
+    # Kyle: changed the line above from int(str(file).split(".")[-2]),
+    # so that it can work on the language ID files, which lack the ".txt" extension
+    num_bins = (len(file_directory) - 1) // num_items_per_bin + 1 
+    #last_bin_length = ((len(file_directory) - 1) % num_items_per_bin) + 1
     bins = []
-    for i in range(num_bins):
-        temp = file_directory[range(i * num_items_per_bin, (i+1) * num_items_per_bin)]
+    for i in range(num_bins - 1):
+        temp = file_directory[i*num_items_per_bin : (i+1)*num_items_per_bin]
         bins.append(temp)
+    # The last bin needs special treatment since it may have fewer elements.
+    bins.append(file_directory[(num_bins - 1)*num_items_per_bin:])
     return bins
 
 
-# The base file names in the subtree of `file_directory` should have the form "xx.length.fileID".
+# The base file names in the subtree of `file_directory` should have the form "xx.length.fileID(.txt)".
 # We want to extract the integer value in place of 'length' in this file name format.
 # TODO: Write the "driver" code that actually runs this function as part of a larger routine.
-def group_files_by_length(file_directory: list, num_lengths_per_bin: int = 0, num_bins: int = 10):
+def group_files_by_length(file_directory: List[Path], num_lengths_per_bin: int = 0, num_bins: int = 10):
     # Retrieve all files in the directory subtree
     file_list = []
     length_list = []
@@ -127,7 +185,9 @@ def group_files_by_length(file_directory: list, num_lengths_per_bin: int = 0, nu
             continue
         # Extract the length of the file using its properly formatted name
         try:
-            new_length = int(f.name.split(".")[-2])
+            new_length = int(f.parts[-1].split(".")[1])
+            # Kyle: changed the line above from int(f.name.split(".")[-2]),
+            # so that it can work on the language ID files, which lack the ".txt" extension
             if (new_length > max_file_length):
                 max_file_length = new_length
             length_list.append(new_length)
@@ -137,7 +197,7 @@ def group_files_by_length(file_directory: list, num_lengths_per_bin: int = 0, nu
         file_list.append(f)
     # Just a safety check for handling directories with no valid files
     if (max_file_length <= 0):
-        return []
+        return [], 0
     # Calculate the "histogramming" parameters
     if (num_lengths_per_bin <= 0):
         if (num_bins <= 0):
@@ -163,6 +223,27 @@ def check_accuracy(list_test_files, model1, model2, prior_1):
         print(b)
         print(accuracy)
 
+# A new function to evaluate a pair of language models on a set of labeled test data
+def evaluate_classifier(model1: LanguageModel, model2: LanguageModel, testdir1: Path, testdir2: Path, prior_1: float = 0.0):
+    test_list_1 = [stuff for stuff in testdir1.rglob("*") if not(stuff.is_dir())]
+    belongs_to_1_1 = [True]*len(test_list_1)
+    test_list_2 = [stuff for stuff in testdir2.rglob("*") if not(stuff.is_dir())]
+    belongs_to_1_2 = [False]*len(test_list_2)
+    prior_1_list = ([prior_1] if (prior_1 > 0.0 and prior_1 < 1.0) else [0.05*p for p in range(1, 20)])
+    test_1_acc, test_1_str, t1m1lps, t1m2lps = binary_classifier_accuracies(model1, model2, test_list_1, belongs_to_1_1, prior_1_list, return_log_probs=True)
+    #print("Model 1 data recall: " + str(test_1_acc) + " (" + test_1_str + ")")
+    test_2_acc, test_2_str, t2m1lps, t2m2lps = binary_classifier_accuracies(model1, model2, test_list_2, belongs_to_1_2, prior_1_list, return_log_probs=True)
+    #print("Model 2 data recall: " + str(test_2_acc) + " (" + test_2_str + ")")
+    total_acc, total_str = binary_classifier_accuracies(model1, model2, test_list_1 + test_list_2, belongs_to_1_1 + belongs_to_1_2, prior_1_list, \
+            log_probs_1=(t1m1lps+t2m1lps), log_probs_2=(t1m2lps+t2m2lps))
+    #print("Total accuracy: " + str(total_acc) + " (" + total_str + ")")
+    print("Prior\tModel 1 data recall\tModel 2 data recall\tTotal Accuracy")
+    for j in range(len(prior_1_list)):
+        print(str(round(prior_1_list[j], 3)) + "\t" + str(round(test_1_acc[j], 3)) + " (" + test_1_str[j] + ")\t\t" + \
+                str(round(test_2_acc[j], 3)) + " (" + test_2_str[j] + ")\t\t" + \
+                str(round(total_acc[j], 3)) + " (" + total_str[j] + ")")
+
+
 def main():
     args = parse_args()
     logging.basicConfig(level=args.verbose)
@@ -173,9 +254,10 @@ def main():
             log.error(f"Invalid natural log of prior probability (must be nonpositive)")
             sys.exit(1)
     else:
-        if (args.prior_1 <= 0.0 or args.prior_1 >= 1.0):
-            log.error(f"Invalid prior probability {args.prior_1:g} (must be strictly between 0 and 1)")
-            sys.exit(1)
+        if not(args.eval):
+            if (args.prior_1 <= 0.0 or args.prior_1 >= 1.0):
+                log.error(f"Invalid prior probability {args.prior_1:g} (must be strictly between 0 and 1)")
+                sys.exit(1)
     
     if (args.accuracy):
         check_accuracy(args.test_files, args.model1, args.model2, args.prior_1)
@@ -184,8 +266,12 @@ def main():
     log.info("Testing...")
     lm_1 = LanguageModel.load(args.model_1)
     lm_2 = LanguageModel.load(args.model_2)
-    corpus_name_1 = str(args.model_1).split(".")[0]
-    corpus_name_2 = str(args.model_2).split(".")[0]
+    corpus_name_1 = str(args.model_1) # changed from `str(args.model_1).split(".")[0]` as of a recent change in HW instructions
+    corpus_name_2 = str(args.model_2) # changed from `str(args.model_2).split(".")[0]` as of a recent change in HW instructions
+
+    if args.eval:
+        evaluate_classifier(lm_1, lm_2, args.model_1_test_dir, args.model_2_test_dir, prior_1=args.prior_1)
+        sys.exit(0)
 
     # Test if the language models have different vocabularies
     if (len(lm_1.vocab) != len(lm_2.vocab)):

@@ -88,6 +88,18 @@ def parse_args() -> argparse.Namespace:
         help="Maximum number of training epochs (default 20)",
     )
     parser.add_argument(
+        "--patience",
+        type=int,
+        default=10,
+        help="Max number of epochs without val loss improvement before early stopping (default 10)",
+    )
+    parser.add_argument(
+        "--learning_rate",
+        type=float,
+        default=0.001,
+        help="Initial learning rate (default 0.001)",
+    )
+    parser.add_argument(
         "--train_batch_size",
         type=int,
         default=64,
@@ -176,7 +188,7 @@ def main():
             log.error("{args.smoother} requires a validation corpus")   # would be better to check this in argparse
             sys.exit(1)
         log.info("Training...")
-        lm.train(args.train_file, args.val_file, args.max_epochs)
+        lm.train(args.train_file, args.val_file, args.max_epochs, patience=args.patience, learning_rate=args.learning_rate)
     else:
         log.info("Training...")
         lm.train(args.train_file)

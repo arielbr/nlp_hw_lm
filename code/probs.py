@@ -451,6 +451,13 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         self.X = nn.Parameter(torch.zeros((self.dim, self.dim)), requires_grad=True)
         self.Y = nn.Parameter(torch.zeros((self.dim, self.dim)), requires_grad=True)
 
+        # If we are able to use a GPU, then let's use it!
+        # Unfortunately, PyTorch does not support the ugrad network GPUs, so we have to turn this feature off for the time being :(
+        self.on_gpu = False #torch.cuda.is_available()
+        if self.on_gpu:
+            self = self.cuda()
+
+
     def prob(self, x: Wordtype, y: Wordtype, z: Wordtype) -> float:
         # This returns an ordinary float probability, using the
         # .item() method that extracts a number out of a Tensor.
@@ -486,9 +493,11 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         return stuff[self._word_index(z)] - torch.logsumexp(stuff, 0) #torch.sum(stuff.exp()).log()
 
     # Faster version of `log_prob` for when we have precomputed the token indices
-    def fast_log_prob(self, x_index: int, y_index: int, z_index: int) -> torch.Tensor:
+    def fast_log_prob(self, x_index: int, y_index: int, z_index: int):
         stuff = torch.mm(self.embeddings, torch.mm(self.X, torch.unsqueeze(self.embeddings[x_index,:], 1)) + \
                 torch.mm(self.Y, torch.unsqueeze(self.embeddings[y_index,:], 1)))
+        if self.on_gpu:
+            stuff = stuff.cuda()
         return stuff[z_index] - torch.logsumexp(stuff, 0)
 
     # This function, which directly loads the index triple for each trigram, is used in this class as well as its subclass.
@@ -547,13 +556,16 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
                 avg_loss.backward()
                 optimizer.step()
                 if verbose:
-                    fval = -avg_loss.item()
+                    fval = -avg_loss.cpu().item()
                     print(f"Epoch {epoch+1}: F = {fval:g}")
             else:
                 epoch_start_time = time.time()
                 for (ix, iy, iz) in (indices_list if (epoch_duration < tqdm_threshold) else tqdm.tqdm(indices_list, total=N)):
                     optimizer.zero_grad()
-                    loss = self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y)))/N - self.fast_log_prob(ix, iy, iz)
+                    logprob = self.fast_log_prob(ix, iy, iz)
+                    #if self.on_gpu:
+                    #    logprob = logprob.cuda()
+                    loss = self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y)))/N - logprob
                     #loss = self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y)))/N - self.log_prob(x, y, z)
                     #
                     # To get the gradient of this objective (∇F_i(θ)), call the `backward`
@@ -571,11 +583,13 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
                 if verbose:
                     with torch.no_grad():
                         #reg_term = self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y))).item() / N
-                        avg_loss = (self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y))) - \
-                                sum([self.fast_log_prob(ix, iy, iz) for (ix, iy, iz) in indices_list]))/N
+                        logsum = sum([self.fast_log_prob(ix, iy, iz) for (ix, iy, iz) in indices_list])
+                        #if self.on_gpu:
+                        #    logsum = logsum.cuda()
+                        avg_loss = (self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y))) - logsum)/N
                         #avg_loss = (self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y))) - \
                         #        sum([self.log_prob(x, y, z) for (x, y, z) in trigrams_list]))/N
-                        fval = -avg_loss.item()
+                        fval = -avg_loss.cpu().item()
                         print(f"Epoch {epoch+1}: F = {fval:g}") #, L2 penalty = {reg_term:g}")
                 epoch_duration = time.time() - epoch_start_time
         #
@@ -707,7 +721,7 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
             for batch in (tqdm.tqdm(train_dataloader, total=len(train_dataloader)) if (epoch_duration > tqdm_threshold) else train_dataloader):
                 optimizer.zero_grad()
                 loss = self.fast_xent_loss(batch, N)
-                train_loss += len(batch[0])*loss.item()
+                train_loss += len(batch[0])*loss.cpu().item()
                 #train_batch_count += 1
                 loss.backward()
                 optimizer.step()
@@ -717,7 +731,7 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
             #val_batch_count = 0
             with torch.no_grad():
                 for val_batch in (tqdm.tqdm(val_dataloader, total=len(val_dataloader)) if (epoch_duration > tqdm_threshold) else val_dataloader):
-                    val_loss += len(val_batch[0])*self.fast_xent_loss(val_batch, M).item()
+                    val_loss += len(val_batch[0])*self.fast_xent_loss(val_batch, M).cpu().item()
                     #val_batch_count += 1
             #log.info(f"Validation loss: {val_loss/val_batch_count:g}")
             log.info(f"Validation loss: {val_loss/M:g}")

@@ -460,15 +460,30 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
             first_line = next(f).replace("\n", "")  # Peel off the special first line.
             [num_words, self.dim] = [int(s) for s in first_line.split(" ")]
             temp_embeddings = torch.zeros([num_words, self.dim], dtype=torch.float)
-            self.word_indices = {}
+            temp_word_indices = {}
             i = 0
             for line in f:  # All of the other lines are regular.
                 tokens = line.split("\t")
                 if ((tokens[0] == OOL) or (tokens[0] in self.vocab)):
-                    self.word_indices[tokens[0]] = i
+                    temp_word_indices[tokens[0]] = i
                     temp_embeddings[i,:] = torch.FloatTensor([float(tokens[j]) for j in range(1, self.dim + 1)])
                     i += 1
-            self.embeddings = temp_embeddings[0:i,:]
+            #self.embeddings = temp_embeddings[0:i,:]
+            ###### NEW FIX AS OF 10/10/2021 ######
+            self.word_indices = {}
+            self.embeddings = torch.zeros([self.vocab_size, self.dim], dtype=torch.float)
+            ii = 0
+            index_OOL = temp_word_indices[OOL]
+            for v in self.vocab:
+                self.word_indices[v] = ii
+                temp_word_index = index_OOL
+                if (v in temp_word_indices):
+                    temp_word_index = temp_word_indices[v]
+                self.embeddings[ii,:] = temp_embeddings[temp_word_index,:]
+                ii += 1
+            # A cheeky fix here :)
+            self.word_indices[OOL] = self.word_indices[OOV] # this should work as long as 'OOV' does not appear in the lexicon
+            ######################################
         # The line below is probably only necessary if 'OOV' appears in the lexicon (which should not happen).
         #self.word_indices[OOV] = self.word_indices[OOL] # any 'OOV' word in our vocab should correspond to 'OOL' in our lexicon
 
@@ -532,7 +547,7 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
     def read_trigram_indices(self, p: Path):
         return [(self._word_index(x), self._word_index(y), self._word_index(z)) for (x, y, z) in read_trigrams_general(p, self.vocab)]
 
-    def train(self, file: Path, max_epochs: int = 10, learning_rate: float = 0.001):    # type: ignore
+    def train(self, file: Path, max_epochs: int = 10, learning_rate: float = 0.01):    # type: ignore
         
         ### Technically this method shouldn't be called `train`,
         ### because this means it overrides not only `LanguageModel.train` (as desired)
@@ -555,7 +570,7 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
 
         N = num_tokens(file)
         # log.info("Start optimizing on {N} training tokens...")
-        print("Training on corpus " + file.parts[-1])
+        print("Training from corpus " + file.parts[-1])
 
         #####################
         # TODO: Implement your SGD here by taking gradient steps on a sequence
@@ -587,7 +602,7 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
                 optimizer.step()
                 if verbose:
                     fval = -avg_loss.cpu().item()
-                    print(f"Epoch {epoch+1}: F = {fval:g}")
+                    print(f"epoch {epoch+1}: F = {fval:g}")
             else:
                 epoch_start_time = time.time()
                 for (ix, iy, iz) in (indices_list if (epoch_duration < tqdm_threshold) else tqdm.tqdm(indices_list, total=N)):
@@ -620,7 +635,7 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
                         #avg_loss = (self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y))) - \
                         #        sum([self.log_prob(x, y, z) for (x, y, z) in trigrams_list]))/N
                         fval = -avg_loss.cpu().item()
-                        print(f"Epoch {epoch+1}: F = {fval:g}") #, L2 penalty = {reg_term:g}")
+                        print(f"epoch {epoch+1}: F = {fval:g}") #, L2 penalty = {reg_term:g}")
                 epoch_duration = time.time() - epoch_start_time
         #
         # For the EmbeddingLogLinearLanguageModel, you should run SGD

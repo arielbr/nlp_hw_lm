@@ -692,7 +692,7 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
         self.val_batch_size = val_batch_size
         self.repeat_str_len = repeat_str_len
         # weight assigned to each word on its repetition feature
-        self.repetition_theta = torch.Tensor(0, dtype=torch.float)
+        self.repetition_theta = torch.Tensor(0.0)
         # We will use this dictionary to persist training routine parameters into the pickled model file that gets saved.
         #self.hyperparams = {}
 

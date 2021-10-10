@@ -761,11 +761,11 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
 
         # Mini-batch dataloaders
         train_trigrams = self.read_trigram_indices(train_file)
-        train_dataloader = DataLoader(range(N), \
+        train_dataloader = DataLoader(list(range(N)), \
                                       batch_size=min(N, self.train_batch_size), \
                                       sampler=SubsetRandomSampler(range(N)))
         val_trigrams = self.read_trigram_indices(val_file)
-        val_dataloader = DataLoader(range(M), \
+        val_dataloader = DataLoader(list(range(M)), \
                                     batch_size=min(M, self.val_batch_size), \
                                     sampler=SubsetRandomSampler(range(M)))
         log.info(f"Start optimizing on {N} training tokens...")

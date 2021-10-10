@@ -182,6 +182,21 @@ def read_vocab(vocab_file: Path) -> Vocab:
     log.info(f"Read vocab of size {len(vocab)} from {vocab_file}")
     return vocab
 
+
+def read_repeat_n(n: int, path: Path, vocab: Vocab):
+    """Iterator over the trigrams in file. If `file` does not specify a directory,
+    then this function behaves identically to `read_trigrams`. If `file` specifies
+    a directory, then this function returns an iterator over all trigrams that occur
+    in any non-directory file in this directory (subdirectory recursion can be turned on or off)."""
+    
+    list_trigrams = list(read_trigrams_general(path, vocab))
+    result = [0 for v in len(list_trigrams)]
+    for i in range(len(list_trigrams)):
+        for j in range(max(0, i - n), i):
+            if list_trigrams[j][-1] == list_trigrams[i][-1]:
+                result[i] += 1
+    return torch.FloatTensor(result)
+
 ##### LANGUAGE MODEL PARENT CLASS
 
 class LanguageModel:
@@ -486,18 +501,7 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
 
     def log_prob(self, x: Wordtype, y: Wordtype, z: Wordtype) -> torch.Tensor:
         """Return log p(z | xy) according to this language model."""
-        # TODO: IMPLEMENT ME!
-        # Don't forget that you can create additional methods
-        # that you think are useful, if you'd like.
-        # It's cleaner than making this function massive.
-        #
-        # Be sure to use vectorization over the vocabulary to
-        # compute the normalization constant Z, or this method
-        # will be very slow.
-        #
-        # The operator `@` is a nice way to write matrix multiplication:
-        # you can write J @ K as shorthand for torch.mul(J, K).
-        # J @ K looks more like the usual math notation.
+        # use vectorization for the normalization constant Z for speed
 
         # We take the transpose of the matrix multiplication expression in equation (7) of the reading materials, so our `self.X` and `self.Y`
         # actually correspond to the transposes of the matrices X and Y defined in the reading materials. However, since X and Y are square
@@ -555,7 +559,7 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         # To get the training examples, you can use the `read_trigrams` function
         # we provided, which will iterate over all N trigrams in the training
         # corpus.
-        #trigrams_list = list(read_trigrams(file, self.vocab))
+        # trigrams_list = list(read_trigrams(file, self.vocab))
         indices_list = self.read_trigram_indices(file)
         total_epochs = max_epochs # previously this was always set to 10
         self.hyperparams("max_epochs", total_epochs)
@@ -677,7 +681,7 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
     #   as `torch.optim.Adam` (https://pytorch.org/docs/stable/optim.html).
     #
 
-    def __init__(self, vocab: Vocab, lexicon_file: Path, l2: float, train_batch_size: int, val_batch_size: int) -> None:
+    def __init__(self, vocab: Vocab, lexicon_file: Path, l2: float, train_batch_size: int, val_batch_size: int, repeat_str_len: int = 10) -> None:
         super().__init__(vocab, lexicon_file, l2)
         if train_batch_size <= 0:
             log.error(f"Training batch size value was {train_batch_size}")
@@ -687,6 +691,11 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
             raise ValueError("You must include a positive validation batch size")
         self.train_batch_size = train_batch_size
         self.val_batch_size = val_batch_size
+        self.repeat_str_len = repeat_str_len
+        # tracking if each word is repeated in the past repeat_str_len of words before training set instances
+        self.R = torch.Tensor([[0 for v in Vocab]])
+        # weight assigned to each word on its repetition feature
+        self.Z = torch.Tensor([[0 for v in Vocab]])
         # We will use this dictionary to persist training routine parameters into the pickled model file that gets saved.
         #self.hyperparams = {}
 
@@ -699,8 +708,9 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
 
     # Version of `xent_loss` that uses word indices in place of the words themselves, so that we can call `fast_log_prob`
     def fast_xent_loss(self, trigram_indices_batch, N):
-        return self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y)))/N - \
-                sum([self.fast_log_prob(ix, iy, iz) for (ix, iy, iz) in zip(*trigram_indices_batch)])/len(trigram_indices_batch[0])
+        return self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y)) + torch.sum(torch.square(self.Z)))/N - \
+                sum([self.fast_log_prob(ix, iy, iz) for (ix, iy, iz) in zip(*trigram_indices_batch)])/len(trigram_indices_batch[0]) - \
+                sum(torch.dot(self.R, self.Z))/N
 
     def train(self, train_file: Path, val_file: Path, max_epochs: int, patience: int = 10, learning_rate: float = 0.001, opt: str = "ConvergentSGD"):    # type: ignore
         N = num_tokens_general(train_file)
@@ -724,12 +734,17 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
         # Initialize the parameter matrices to be full of zeros.
         nn.init.xavier_uniform_(self.X)   # type: ignore
         nn.init.xavier_uniform_(self.Y)   # type: ignore
-        
+
+        # initialize self.R for the 
+        self.R = read_repeat_n(self.repeat_str_len, train_file, self.vocab)
+
         # Mini-batch dataloaders
-        train_dataloader = DataLoader(self.read_trigram_indices(train_file), \
+        train_trigrams = self.read_trigram_indices(train_file)
+        train_dataloader = DataLoader(range(N), \
                                       batch_size=min(N, self.train_batch_size), \
                                       sampler=SubsetRandomSampler(range(N)))
-        val_dataloader = DataLoader(self.read_trigram_indices(val_file), \
+        val_trigrams = self.read_trigram_indices(val_file)
+        val_dataloader = DataLoader(range(M), \
                                     batch_size=min(M, self.val_batch_size), \
                                     sampler=SubsetRandomSampler(range(M)))
         log.info(f"Start optimizing on {N} training tokens...")
@@ -750,8 +765,12 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
             #train_batch_count = 0
             for batch in (tqdm.tqdm(train_dataloader, total=len(train_dataloader)) if (epoch_duration > tqdm_threshold) else train_dataloader):
                 optimizer.zero_grad()
-                loss = self.fast_xent_loss(batch, N)
-                train_loss += len(batch[0])*loss.cpu().item()
+                len_batch = len(batch[0])
+                trigrams = ([train_trigrams[batch[0][i]] for i in range(len_batch)], 
+                            [train_trigrams[batch[1][i]] for i in range(len_batch)],
+                            [train_trigrams[batch[2][i]] for i in range(len_batch)])
+                loss = self.fast_xent_loss(trigrams, N)
+                train_loss += len_batch*loss.cpu().item()
                 #train_batch_count += 1
                 loss.backward()
                 optimizer.step()
@@ -761,7 +780,11 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
             #val_batch_count = 0
             with torch.no_grad():
                 for val_batch in (tqdm.tqdm(val_dataloader, total=len(val_dataloader)) if (epoch_duration > tqdm_threshold) else val_dataloader):
-                    val_loss += len(val_batch[0])*self.fast_xent_loss(val_batch, M).cpu().item()
+                    len_batch = len(val_batch[0])
+                    trigrams = ([val_trigrams[val_batch[0][i]] for i in range(len_batch)], 
+                                [val_trigrams[val_batch[1][i]] for i in range(len_batch)],
+                                [val_trigrams[val_batch[2][i]] for i in range(len_batch)])
+                    val_loss += len_batch*self.fast_xent_loss(trigrams, M).cpu().item()
                     #val_batch_count += 1
             #log.info(f"Validation loss: {val_loss/val_batch_count:g}")
             log.info(f"Validation loss: {val_loss/M:g}")

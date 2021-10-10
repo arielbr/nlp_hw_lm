@@ -8,7 +8,7 @@ import math
 import sys
 from pathlib import Path
 
-from probs import LanguageModel, num_tokens, read_trigrams, ImprovedLogLinearLanguageModel
+from probs import LanguageModel, num_tokens, read_trigrams, EmbeddingLogLinearLanguageModel, ImprovedLogLinearLanguageModel
 
 from typing import List
 
@@ -237,7 +237,10 @@ def evaluate_classifier(model1: LanguageModel, model2: LanguageModel, model1name
     belongs_to_1_1 = [True]*len(test_list_1)
     test_list_2 = [stuff for stuff in testdir2.rglob("*") if not(stuff.is_dir())]
     belongs_to_1_2 = [False]*len(test_list_2)
-    prior_1_list = ([prior_1] if (prior_1 > 0.0 and prior_1 < 1.0) else [0.05*p for p in range(1, 20)])
+    low_priors_list = [0.000001, 0.00001, 0.0001, 0.001, 0.01]
+    mid_priors_list = [0.05*p for p in range(1, 20)]
+    high_priors_list = [0.99, 0.999, 0.9999, 0.99999, 0.999999]
+    prior_1_list = ([prior_1] if (prior_1 > 0.0 and prior_1 < 1.0) else low_priors_list + mid_priors_list + high_priors_list)
     test_1_acc, test_1_str, t1m1lps, t1m2lps = binary_classifier_accuracies(model1, model2, test_list_1, belongs_to_1_1, prior_1_list, return_log_probs=True)
     #print("Model 1 data recall: " + str(test_1_acc) + " (" + test_1_str + ")")
     test_2_acc, test_2_str, t2m1lps, t2m2lps = binary_classifier_accuracies(model1, model2, test_list_2, belongs_to_1_2, prior_1_list, return_log_probs=True)
@@ -247,9 +250,21 @@ def evaluate_classifier(model1: LanguageModel, model2: LanguageModel, model1name
     #print("Total accuracy: " + str(total_acc) + " (" + total_str + ")")
     out = "Prior\tModel 1 data recall\tModel 2 data recall\tTotal Accuracy\n"
     for j in range(len(prior_1_list)):
-        out += str(round(prior_1_list[j], 3)) + "\t" + str(round(test_1_acc[j], 3)) + " (" + test_1_str[j] + ")\t\t" + \
+        prior_str = str(round(prior_1_list[j], 6))
+        if (len(prior_str) >= 8):
+            prior_str = prior_str[1:]
+        out += prior_str + "\t" + str(round(test_1_acc[j], 3)) + " (" + test_1_str[j] + ")\t\t" + \
                 str(round(test_2_acc[j], 3)) + " (" + test_2_str[j] + ")\t\t" + \
                 str(round(total_acc[j], 3)) + " (" + total_str[j] + ")\n"
+    jason = False
+    if isinstance(model1, EmbeddingLogLinearLanguageModel):
+        out += "\n"
+        jason = True
+        out += "Model 1 data cross-entropy (with respect to model 1): " + str(round(model1.cross_entropy(test_list_1), 3)) + "\n"
+    if isinstance(model2, EmbeddingLogLinearLanguageModel):
+        if not(jason):
+            out += "\n"
+        out += "Model 2 data cross-entropy (with respect to model 2): " + str(round(model2.cross_entropy(test_list_2), 3)) + "\n"
     print(out)
     out += "\nModel 1 (" + model1name + ") Parameters:\n"
     for param_id in model1.hyperparams_dict:
@@ -259,7 +274,7 @@ def evaluate_classifier(model1: LanguageModel, model2: LanguageModel, model1name
         out += str(param_id) + ": " + str(model2.hyperparams_dict[param_id]) + "\n"
     out += "\n"
     filename = "EVAL_" + model1name.split(".")[0] + "_AND_" + model2name.split(".")[0] + ".txt"
-    f = open(filename, "a")
+    f = open(filename, "w") # use the 'append' tag "a" instead of the 'write' tag "w" to avoid overwriting an existing file with the same name
     f.write(out)
     f.close()
     print("Saved evaluation results to " + filename)

@@ -786,7 +786,7 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
             #train_batch_count = 0
             for batch in (tqdm.tqdm(train_dataloader, total=len(train_dataloader)) if (epoch_duration > tqdm_threshold) else train_dataloader):
                 optimizer.zero_grad()
-                len_batch = len(batch[0])
+                len_batch = len(batch)
                 # trigrams = ([train_trigrams[batch[0][i]] for i in range(len_batch)], 
                 #             [train_trigrams[batch[1][i]] for i in range(len_batch)],
                 #             [train_trigrams[batch[2][i]] for i in range(len_batch)])
@@ -801,7 +801,7 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
             #val_batch_count = 0
             with torch.no_grad():
                 for val_batch in (tqdm.tqdm(val_dataloader, total=len(val_dataloader)) if (epoch_duration > tqdm_threshold) else val_dataloader):
-                    len_batch = len(val_batch[0])
+                    len_batch = len(val_batch)
                     # trigrams = ([val_trigrams[val_batch[0][i]] for i in range(len_batch)], 
                     #             [val_trigrams[val_batch[1][i]] for i in range(len_batch)],
                     #             [val_trigrams[val_batch[2][i]] for i in range(len_batch)])

@@ -510,6 +510,9 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
                           torch.mm(self.Y, torch.unsqueeze(self.embeddings[self._word_index(y),:], 1)))
         return stuff[self._word_index(z)] - torch.logsumexp(stuff, 0) #torch.sum(stuff.exp()).log()
 
+    def cross_entropy(self, val_file: Path) -> float:
+        return -sum([self.log_prob(x, y, z) for (x, y, z) in read_trigrams(val_file, self.vocab)]) / num_tokens(val_file)
+
     # Same as log_prob but without wrapping the numerical answer in a torch Tensor
     def log_prob_float(self, x: Wordtype, y: Wordtype, z: Wordtype) -> float:
         return self.log_prob(x, y, z).item()
@@ -692,31 +695,53 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
         self.val_batch_size = val_batch_size
         self.repeat_str_len = repeat_str_len
         # weight assigned to each word on its repetition feature
-        self.repetition_theta = torch.tensor(0.0)
-        # We will use this dictionary to persist training routine parameters into the pickled model file that gets saved.
-        #self.hyperparams = {}
+        self.repetition_theta = nn.Parameter(torch.tensor(0.0), requires_grad=True)
+        self.unigram_weights = nn.Parameter(torch.zeros((self.dim, 1)), requires_grad=True)
+        self.trigram_weights = nn.Parameter(torch.zeros((self.dim, self.dim)), requires_grad=True)
 
+    # For this improved model, we need to look at the entire token sequence at once when computing
+    # its log probability because the repetition feature depends on more than one trigram.
     def total_log_prob(self, val_file: Path) -> float:
         """Return log p(z | xy) according to this language model."""
         val_repetition = read_repeat_n(self.repeat_str_len, val_file, self.vocab)
         log_prob = 0
         for (i, (x, y, z)) in enumerate(read_trigrams(val_file, self.vocab)):
-            stuff = torch.mm(self.embeddings, torch.mm(self.X, torch.unsqueeze(self.embeddings[self._word_index(x),:], 1)) + \
-                          torch.mm(self.Y, torch.unsqueeze(self.embeddings[self._word_index(y),:], 1)))
+            x_col = torch.unsqueeze(self.embeddings[self._word_index(x),:], 1)
+            y_col = torch.unsqueeze(self.embeddings[self._word_index(y),:], 1)
+            # Features from the original log-linear model
+            stuff = torch.mm(self.embeddings, torch.mm(self.X, x_col) + torch.mm(self.Y, y_col))
+            # Word repetition feature
             stuff += self.repetition_theta * val_repetition[i]
+            # Trigram features
+            W = torch.mm(x_col, torch.transpose(y_col, 0, 1)) * self.trigram_weights
+            stuff += torch.sum(torch.mm(self.embeddings, W) * self.embeddings, 1)
+            # Unigram features
+            stuff += torch.mm(self.embeddings, self.unigram_weights)
             log_prob += (stuff[self._word_index(z)] - torch.logsumexp(stuff, 0)).item()
         return log_prob
+
+    def cross_entropy(self, val_file: Path) -> float:
+        return -self.total_log_prob(val_file) / num_tokens(val_file)
 
     def fast_total_log_prob(self, trigram_index_list: list, rep_list: list, batch_index_list: list) -> torch.Tensor:
         """Return log p(z | xy) according to this language model."""
         log_prob = 0
         for i in batch_index_list:
-            stuff = torch.mm(self.embeddings, torch.mm(self.X, torch.unsqueeze(self.embeddings[trigram_index_list[i][0],:], 1)) + \
-                          torch.mm(self.Y, torch.unsqueeze(self.embeddings[trigram_index_list[i][1],:], 1)))
+            x_col = torch.unsqueeze(self.embeddings[trigram_index_list[i][0],:], 1)
+            y_col = torch.unsqueeze(self.embeddings[trigram_index_list[i][1],:], 1)
+            # Features from the original log-linear model
+            stuff = torch.mm(self.embeddings, torch.mm(self.X, x_col) + torch.mm(self.Y, y_col))
+            # Word repetition feature
             stuff += self.repetition_theta * rep_list[i]
+            # Trigram features
+            W = torch.mm(x_col, torch.transpose(y_col, 0, 1)) * self.trigram_weights
+            stuff += torch.sum(torch.mm(self.embeddings, W) * self.embeddings, 1)
+            # Unigram features
+            stuff += torch.mm(self.embeddings, self.unigram_weights)
             log_prob += stuff[trigram_index_list[i][2]] - torch.logsumexp(stuff, 0)
         return log_prob
 
+    # L2 regularization term
     def regu(self, N: int) -> torch.Tensor:
         return self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y)) + torch.sum(torch.square(self.repetition_theta)))/N
 
@@ -724,13 +749,11 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
     # Correction made on 10/06/21: Regularization term should be divided by N, the number of samples in the underlying dataset.
     # Therefore, the loss of a single mini-batch depends on a parameter that is not an intrinsic property of that mini-batch.
     def xent_loss(self, trigram_batch, N):
-        return self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y)))/N - \
-                sum([self.log_prob(x, y, z) for (x, y, z) in zip(*trigram_batch)])/len(trigram_batch[0])
+        return self.regu(N) - sum([self.log_prob(x, y, z) for (x, y, z) in zip(*trigram_batch)])/len(trigram_batch[0])
 
     # Version of `xent_loss` that uses word indices in place of the words themselves, so that we can call `fast_log_prob`
     def fast_xent_loss(self, trigram_indices_batch, N):
-        return self.regu(N) - \
-                sum([self.fast_log_prob(ix, iy, iz) for (ix, iy, iz) in zip(*trigram_indices_batch)])/len(trigram_indices_batch[0])
+        return self.regu(N) - sum([self.fast_log_prob(ix, iy, iz) for (ix, iy, iz) in zip(*trigram_indices_batch)])/len(trigram_indices_batch[0])
 
     def train(self, train_file: Path, val_file: Path, max_epochs: int, patience: int = 10, learning_rate: float = 0.001, opt: str = "ConvergentSGD"):    # type: ignore
         N = num_tokens_general(train_file)
@@ -751,9 +774,11 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
         else:
             optimizer = ConvergentSGD(self.parameters(), learning_rate, 2*self.l2/N)
             self.hyperparams("optimizer", "ConvergentSGD")
-        # Initialize the parameter matrices to be full of zeros.
+        # Initialize the parameter matrices via uniform distributions.
         nn.init.xavier_uniform_(self.X)   # type: ignore
         nn.init.xavier_uniform_(self.Y)   # type: ignore
+        nn.init.xavier_uniform_(self.trigram_weights)   # type: ignore
+        nn.init.xavier_uniform_(self.unigram_weights)   # type: ignore
 
         # initialize rep_list for the repetition number of each word
         rep_list = read_repeat_n(self.repeat_str_len, train_file, self.vocab)
@@ -775,39 +800,30 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
         best_val_loss = 420.0 # any bogus constant works here
         impatience_counter = 0 # this *must* be initialized at zero
 
-        # Save copies of self.X and self.Y detached from the computational graph.
+        # Save copies of learnable parameters, detached from the computational graph.
         bestX = torch.clone(self.X).detach()
         bestY = torch.clone(self.Y).detach()
+        best_rep_theta = torch.clone(self.repetition_theta).detach()
+        best_trigram_weights = torch.clone(self.trigram_weights).detach()
+        best_unigram_weights = torch.clone(self.unigram_weights).detach()
         
         for epoch in range(max_epochs):
             log.info(f"Running epoch {epoch+1}/{max_epochs} ...")
             epoch_start = time.time()
             train_loss = 0
-            #train_batch_count = 0
             for batch in (tqdm.tqdm(train_dataloader, total=len(train_dataloader)) if (epoch_duration > tqdm_threshold) else train_dataloader):
                 optimizer.zero_grad()
                 len_batch = len(batch)
-                # trigrams = ([train_trigrams[batch[0][i]] for i in range(len_batch)], 
-                #             [train_trigrams[batch[1][i]] for i in range(len_batch)],
-                #             [train_trigrams[batch[2][i]] for i in range(len_batch)])
                 loss = self.regu(N) - self.fast_total_log_prob(train_trigrams, rep_list, batch) / len_batch
                 train_loss += len_batch*loss.cpu().item()
-                #train_batch_count += 1
                 loss.backward()
                 optimizer.step()
-            #log.info(f"Training loss: {train_loss/train_batch_count:g}")
             log.info(f"Training loss: {train_loss/N:g}")
             val_loss = 0
-            #val_batch_count = 0
             with torch.no_grad():
                 for val_batch in (tqdm.tqdm(val_dataloader, total=len(val_dataloader)) if (epoch_duration > tqdm_threshold) else val_dataloader):
                     len_batch = len(val_batch)
-                    # trigrams = ([val_trigrams[val_batch[0][i]] for i in range(len_batch)], 
-                    #             [val_trigrams[val_batch[1][i]] for i in range(len_batch)],
-                    #             [val_trigrams[val_batch[2][i]] for i in range(len_batch)])
-                    val_loss += (self.regu(M) - self.fast_total_log_prob(val_trigrams, val_rep_list, val_batch) / len_batch).item() * len_batch
-                    #val_batch_count += 1
-            #log.info(f"Validation loss: {val_loss/val_batch_count:g}")
+                    val_loss += (len_batch*self.regu(M) - self.fast_total_log_prob(val_trigrams, val_rep_list, val_batch)).item()
             log.info(f"Validation loss: {val_loss/M:g}")
             epoch_duration = time.time() - epoch_start
             log.info(f"Epoch {epoch+1} finished in {epoch_duration:g} seconds.")
@@ -816,6 +832,9 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
                 impatience_counter = 0
                 bestX = torch.clone(self.X).detach()
                 bestY = torch.clone(self.Y).detach()
+                best_rep_theta = torch.clone(self.repetition_theta).detach()
+                best_trigram_weights = torch.clone(self.trigram_weights).detach()
+                best_unigram_weights = torch.clone(self.unigram_weights).detach()
                 best_val_loss = val_loss
             else:
                 impatience_counter += 1
@@ -824,6 +843,9 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
                     log.info(f"Stopping early and restoring model weights from epoch {epoch+1-impatience_counter}.")
                     self.X = nn.Parameter(bestX, requires_grad=True)
                     self.Y = nn.Parameter(bestY, requires_grad=True)
+                    self.repetition_theta = nn.Parameter(best_rep_theta, requires_grad=True)
+                    self.trigram_weights = nn.Parameter(best_trigram_weights, requires_grad=True)
+                    self.unigram_weights = nn.Parameter(best_unigram_weights, requires_grad=True)
                     break
         # If training was successful, then save the training hyperparameters so they can be recovered later.
         self.hyperparams("train_batch_size", self.train_batch_size)

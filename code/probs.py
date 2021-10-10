@@ -508,7 +508,6 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         # matrices and are only being used internally for this log-prob computation, there is no problem with working with X^T and Y^T.
         stuff = torch.mm(self.embeddings, torch.mm(self.X, torch.unsqueeze(self.embeddings[self._word_index(x),:], 1)) + \
                           torch.mm(self.Y, torch.unsqueeze(self.embeddings[self._word_index(y),:], 1)))
-        #raise NotImplementedError("Implement me!")
         return stuff[self._word_index(z)] - torch.logsumexp(stuff, 0) #torch.sum(stuff.exp()).log()
 
     # Same as log_prob but without wrapping the numerical answer in a torch Tensor
@@ -692,12 +691,34 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
         self.train_batch_size = train_batch_size
         self.val_batch_size = val_batch_size
         self.repeat_str_len = repeat_str_len
-        # tracking if each word is repeated in the past repeat_str_len of words before training set instances
-        self.R = torch.Tensor([[0 for v in Vocab]])
         # weight assigned to each word on its repetition feature
-        self.Z = torch.Tensor([[0 for v in Vocab]])
+        self.repetition_theta = torch.Tensor(0, dtype=torch.float)
         # We will use this dictionary to persist training routine parameters into the pickled model file that gets saved.
         #self.hyperparams = {}
+
+    def total_log_prob(self, val_file: Path) -> float:
+        """Return log p(z | xy) according to this language model."""
+        val_repetition = read_repeat_n(self.repeat_str_len, val_file, self.vocab)
+        log_prob = 0
+        for (i, (x, y, z)) in enumerate(read_trigrams(val_file, self.vocab)):
+            stuff = torch.mm(self.embeddings, torch.mm(self.X, torch.unsqueeze(self.embeddings[self._word_index(x),:], 1)) + \
+                          torch.mm(self.Y, torch.unsqueeze(self.embeddings[self._word_index(y),:], 1)))
+            stuff += self.repetition_theta * self.val_repetition[i]
+            log_prob += (stuff[self._word_index(z)] - torch.logsumexp(stuff, 0)).item()
+        return log_prob
+
+    def fast_total_log_prob(self, trigram_index_list: list, rep_list: list, batch_index_list: list) -> torch.Tensor:
+        """Return log p(z | xy) according to this language model."""
+        log_prob = 0
+        for i in batch_index_list:
+            stuff = torch.mm(self.embeddings, torch.mm(self.X, torch.unsqueeze(self.embeddings[trigram_index_list[i][0],:], 1)) + \
+                          torch.mm(self.Y, torch.unsqueeze(self.embeddings[trigram_index_list[i][1],:], 1)))
+            stuff += self.repetition_theta * rep_list[i]
+            log_prob += stuff[trigram_index_list[i][2]] - torch.logsumexp(stuff, 0)
+        return log_prob
+
+    def regu(self, N: int) -> torch.Tensor:
+        return self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y)) + torch.sum(torch.square(self.repetition_theta)))/N
 
     # Cross-Entropy Loss of a batch with L2 Regularization
     # Correction made on 10/06/21: Regularization term should be divided by N, the number of samples in the underlying dataset.
@@ -708,9 +729,8 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
 
     # Version of `xent_loss` that uses word indices in place of the words themselves, so that we can call `fast_log_prob`
     def fast_xent_loss(self, trigram_indices_batch, N):
-        return self.l2*(torch.sum(torch.square(self.X)) + torch.sum(torch.square(self.Y)) + torch.sum(torch.square(self.Z)))/N - \
-                sum([self.fast_log_prob(ix, iy, iz) for (ix, iy, iz) in zip(*trigram_indices_batch)])/len(trigram_indices_batch[0]) - \
-                sum(torch.dot(self.R, self.Z))/N
+        return self.regu(N) - \
+                sum([self.fast_log_prob(ix, iy, iz) for (ix, iy, iz) in zip(*trigram_indices_batch)])/len(trigram_indices_batch[0])
 
     def train(self, train_file: Path, val_file: Path, max_epochs: int, patience: int = 10, learning_rate: float = 0.001, opt: str = "ConvergentSGD"):    # type: ignore
         N = num_tokens_general(train_file)
@@ -735,8 +755,9 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
         nn.init.xavier_uniform_(self.X)   # type: ignore
         nn.init.xavier_uniform_(self.Y)   # type: ignore
 
-        # initialize self.R for the 
-        self.R = read_repeat_n(self.repeat_str_len, train_file, self.vocab)
+        # initialize rep_list for the repetition number of each word
+        rep_list = read_repeat_n(self.repeat_str_len, train_file, self.vocab)
+        val_rep_list = read_repeat_n(self.repeat_str_len, val_file, self.vocab)
 
         # Mini-batch dataloaders
         train_trigrams = self.read_trigram_indices(train_file)
@@ -766,10 +787,10 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
             for batch in (tqdm.tqdm(train_dataloader, total=len(train_dataloader)) if (epoch_duration > tqdm_threshold) else train_dataloader):
                 optimizer.zero_grad()
                 len_batch = len(batch[0])
-                trigrams = ([train_trigrams[batch[0][i]] for i in range(len_batch)], 
-                            [train_trigrams[batch[1][i]] for i in range(len_batch)],
-                            [train_trigrams[batch[2][i]] for i in range(len_batch)])
-                loss = self.fast_xent_loss(trigrams, N)
+                # trigrams = ([train_trigrams[batch[0][i]] for i in range(len_batch)], 
+                #             [train_trigrams[batch[1][i]] for i in range(len_batch)],
+                #             [train_trigrams[batch[2][i]] for i in range(len_batch)])
+                loss = self.regu(N) - self.fast_total_log_prob(train_trigrams, rep_list, batch) / len_batch
                 train_loss += len_batch*loss.cpu().item()
                 #train_batch_count += 1
                 loss.backward()
@@ -781,10 +802,10 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
             with torch.no_grad():
                 for val_batch in (tqdm.tqdm(val_dataloader, total=len(val_dataloader)) if (epoch_duration > tqdm_threshold) else val_dataloader):
                     len_batch = len(val_batch[0])
-                    trigrams = ([val_trigrams[val_batch[0][i]] for i in range(len_batch)], 
-                                [val_trigrams[val_batch[1][i]] for i in range(len_batch)],
-                                [val_trigrams[val_batch[2][i]] for i in range(len_batch)])
-                    val_loss += len_batch*self.fast_xent_loss(trigrams, M).cpu().item()
+                    # trigrams = ([val_trigrams[val_batch[0][i]] for i in range(len_batch)], 
+                    #             [val_trigrams[val_batch[1][i]] for i in range(len_batch)],
+                    #             [val_trigrams[val_batch[2][i]] for i in range(len_batch)])
+                    val_loss += (self.regu(M) - self.fast_total_log_prob(val_trigrams, val_rep_list, val_batch) / len_batch).item() * len_batch
                     #val_batch_count += 1
             #log.info(f"Validation loss: {val_loss/val_batch_count:g}")
             log.info(f"Validation loss: {val_loss/M:g}")

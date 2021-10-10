@@ -8,7 +8,7 @@ import math
 import sys
 from pathlib import Path
 
-from probs import LanguageModel, num_tokens, read_trigrams
+from probs import LanguageModel, num_tokens, read_trigrams, ImprovedLogLinearLanguageModel
 
 from typing import List
 
@@ -91,6 +91,8 @@ def file_log_prob(file: Path, lm: LanguageModel) -> float:
     (This is a natural log, as for all our internal computations.)
     """
     log_prob = 0.0
+    if isinstance(lm, ImprovedLogLinearLanguageModel):
+        return lm.total_log_prob(file)
     for (x, y, z) in read_trigrams(file, lm.vocab):
         #try:
         #    # The below computation may fail due to a numerical underflow in the computation of lm.prob(x, y, z)

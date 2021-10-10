@@ -190,7 +190,7 @@ def read_repeat_n(n: int, path: Path, vocab: Vocab):
     in any non-directory file in this directory (subdirectory recursion can be turned on or off)."""
     
     list_trigrams = list(read_trigrams_general(path, vocab))
-    result = [0 for v in len(list_trigrams)]
+    result = [0] * len(list_trigrams)
     for i in range(len(list_trigrams)):
         for j in range(max(0, i - n), i):
             if list_trigrams[j][-1] == list_trigrams[i][-1]:

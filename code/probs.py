@@ -703,7 +703,7 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
         for (i, (x, y, z)) in enumerate(read_trigrams(val_file, self.vocab)):
             stuff = torch.mm(self.embeddings, torch.mm(self.X, torch.unsqueeze(self.embeddings[self._word_index(x),:], 1)) + \
                           torch.mm(self.Y, torch.unsqueeze(self.embeddings[self._word_index(y),:], 1)))
-            stuff += self.repetition_theta * self.val_repetition[i]
+            stuff += self.repetition_theta * val_repetition[i]
             log_prob += (stuff[self._word_index(z)] - torch.logsumexp(stuff, 0)).item()
         return log_prob
 

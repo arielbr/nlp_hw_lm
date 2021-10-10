@@ -1,1 +1,1 @@
-en.model es.model 0.65
+en.model es.model 0.5
